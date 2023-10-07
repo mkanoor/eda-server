@@ -152,6 +152,7 @@ class ActivationInstance(models.Model):
     ended_at = models.DateTimeField(null=True)
     activation_pod_id = models.TextField(null=True)
     status_message = models.TextField(null=True, default=None)
+    log_read_at = models.DateTimeField(null=True)
 
     def save(self, *args, **kwargs):
         # when creating

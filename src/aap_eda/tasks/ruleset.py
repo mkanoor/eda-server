@@ -39,6 +39,13 @@ def activate(activation_id: int, requester: str = "User") -> Job:
     )
 
 
+def check_exited(activation_id: int, requester: str = "User") -> Job:
+    job_id = f"activation-{activation_id}"
+    return unique_enqueue(
+        "activation", job_id, _check_exited, activation_id, requester
+    )
+
+
 def _activate(activation_id: int, requester: str = "User") -> None:
     logger.info(
         f"Activating activation id: {activation_id} requested "
@@ -69,7 +76,7 @@ def _activate(activation_id: int, requester: str = "User") -> None:
 
     ActivateRulesets().activate(activation)
 
-    logger.info(f"Activation {activation.name} is done.")
+    logger.info(f"Activation {activation.name} is running detached.")
 
 
 @job("default")
@@ -161,6 +168,75 @@ def restart(activation_id: int, requester: str = "User") -> None:
         _schedule_activate(activation, requester)
 
 
+@job("default")
+def read_logs(
+    activation_id: int,
+    requester: str = "User",
+) -> None:
+    logger.info(
+        f"Reading logs for activation id: {activation_id} "
+        f"requested by {requester}"
+    )
+
+    with transaction.atomic():
+        activation = (
+            models.Activation.objects.select_for_update()
+            .filter(id=activation_id)
+            .first()
+        )
+        if not activation:
+            logger.warning(f"Activation {activation_id} is deleted.")
+            return
+
+        if activation.status in [
+            ActivationStatus.COMPLETED,
+            ActivationStatus.FAILED,
+            ActivationStatus.STOPPED,
+        ]:
+            logger.warning(
+                f"Cannot read the activation log {activation.name} when its "
+                f"status is {activation.status}"
+            )
+            return
+
+        _perform_read_logs(activation)
+
+
+@job("default")
+def _check_exited(
+    activation_id: int,
+    requester: str = "User",
+) -> None:
+    logger.info(
+        f"Check if  activation id: {activation_id} exited"
+        f"requested by {requester}"
+    )
+
+    with transaction.atomic():
+        activation = (
+            models.Activation.objects.select_for_update()
+            .filter(id=activation_id)
+            .first()
+        )
+        if not activation:
+            logger.warning(f"Activation {activation_id} is deleted.")
+            return
+
+        if activation.status in [
+            ActivationStatus.COMPLETED,
+            ActivationStatus.FAILED,
+            ActivationStatus.STOPPED,
+        ]:
+            logger.warning(
+                f"Cannot check the activation exit status "
+                f"{activation.name} when its "
+                f"status is {activation.status}"
+            )
+            return
+
+        _perform_exit_check(activation)
+
+
 def _perform_deactivate(
     activation: models.Activation, final_status: ActivationStatus
 ) -> None:
@@ -204,6 +280,44 @@ def _perform_deactivate(
         )
 
 
+def _perform_read_logs(activation: models.Activation) -> None:
+    logger.info(f"Task started: Read log for Activation ({activation.name})")
+
+    current_instances = (
+        models.ActivationInstance.objects.select_for_update().filter(
+            activation_id=activation.id,
+            status__in=[
+                ActivationStatus.STARTING,
+                ActivationStatus.PENDING,
+                ActivationStatus.RUNNING,
+                ActivationStatus.UNRESPONSIVE,
+            ],
+        )
+    )
+
+    for instance in current_instances:
+        ActivateRulesets().read_logs(instance=instance)
+
+
+def _perform_exit_check(activation: models.Activation) -> None:
+    logger.info(f"Task started: Exit Check for Activation ({activation.name})")
+
+    current_instances = (
+        models.ActivationInstance.objects.select_for_update().filter(
+            activation_id=activation.id,
+            status__in=[
+                ActivationStatus.STARTING,
+                ActivationStatus.PENDING,
+                ActivationStatus.RUNNING,
+                ActivationStatus.UNRESPONSIVE,
+            ],
+        )
+    )
+
+    for instance in current_instances:
+        ActivateRulesets().check_exited(instance=instance)
+
+
 # Started by the scheduler, executed by the default worker
 def monitor_activations() -> None:
     job_id = "monitor_activations"
@@ -213,10 +327,28 @@ def monitor_activations() -> None:
 def _monitor_activations() -> None:
     logger.info("Task started: monitor_activations")
     now = timezone.now()
+    _drain_logs()
+    _check_exited_pods()
     _detect_unresponsive(now)
     _stop_unresponsive(now)
     _start_completed(now)
     _start_failed(now)
+
+
+def _drain_logs() -> None:
+    running_statuses = [ActivationStatus.RUNNING]
+    for instance in models.ActivationInstance.objects.filter(
+        status__in=running_statuses
+    ):
+        ActivateRulesets().read_logs(instance=instance)
+
+
+def _check_exited_pods() -> None:
+    running_statuses = [ActivationStatus.RUNNING]
+    for instance in models.ActivationInstance.objects.filter(
+        status__in=running_statuses
+    ):
+        ActivateRulesets().check_exited(instance=instance)
 
 
 def _detect_unresponsive(now: timezone.datetime) -> None:

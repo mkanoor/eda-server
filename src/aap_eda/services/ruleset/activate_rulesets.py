@@ -31,6 +31,8 @@ from .exceptions import (
     ActivationRecordNotFound,
     DeactivationException,
 )
+from .podman_exited import PodmanExited
+from .podman_read_logs import PodmanReadLogs
 
 logger = logging.getLogger(__name__)
 ACTIVATION_PATH = "/api/eda/ws/ansible-rulebook"
@@ -112,6 +114,7 @@ class ActivateRulesets:
         deployment_type = settings.DEPLOYMENT_TYPE
         ws_base_url = settings.WEBSOCKET_BASE_URL
         ssl_verify = settings.WEBSOCKET_SSL_VERIFY
+        detached = False
         try:
             try:
                 instance = models.ActivationInstance.objects.create(
@@ -149,6 +152,7 @@ class ActivateRulesets:
                     decision_environment=activation.decision_environment,
                     activation_db_logger=activation_db_logger,
                 )
+                detached = True
             elif dtype == DeploymentType.K8S:
                 logger.info(f"Activation DeploymentType: {dtype}")
                 self.activate_in_k8s(
@@ -172,8 +176,8 @@ class ActivateRulesets:
                     instance,
                     activation_db_logger,
                 )
-
-            self._final_update(instance, activation_db_logger)
+            if not detached:
+                self._final_update(instance, activation_db_logger)
         except (
             DeactivationException,
             ActivationRecordNotFound,
@@ -191,6 +195,43 @@ class ActivateRulesets:
                 self._final_update(instance, activation_db_logger)
             except ActivationRecordNotFound as error:
                 logger.error(error)
+
+    def check_exited(
+        self,
+        instance: models.ActivationInstance,
+    ) -> None:
+        try:
+            deployment_type = settings.DEPLOYMENT_TYPE
+
+            activation_db_logger = ActivationDbLogger(instance.id)
+            try:
+                dtype = DeploymentType(deployment_type)
+            except ValueError:
+                raise ActivationException(
+                    f"Invalid deployment type: {deployment_type}"
+                )
+
+            if dtype == DeploymentType.PODMAN:
+                final_status = PodmanExited(
+                    settings.PODMAN_SOCKET_URL, activation_db_logger
+                ).get_status(instance)
+            elif dtype == DeploymentType.K8S:
+                logger.info(f"Activation DeploymentType: {dtype}")
+                raise NotImplementedError
+            else:
+                raise ActivationException(f"Unsupported {deployment_type}")
+
+            logger.info(
+                f"Stopped Activation, Name: {instance.name}, ID: {instance.id}"
+            )
+            # TODO:
+            if final_status:
+                instance.status = final_status
+                save_activation_and_instance(instance, ["status"])
+
+        except Exception as exe:
+            logger.exception(f"Activation error: {str(exe)}")
+            activation_db_logger.write(f"Activation error: {str(exe)}")
 
     def deactivate(
         self,
@@ -230,6 +271,42 @@ class ActivateRulesets:
         except Exception as exe:
             logger.exception(f"Activation error: {str(exe)}")
             activation_db_logger.write(f"Activation error: {str(exe)}")
+
+    def read_logs(
+        self,
+        instance: models.ActivationInstance,
+    ) -> None:
+        try:
+            deployment_type = settings.DEPLOYMENT_TYPE
+            activation_db_logger = ActivationDbLogger(instance.id)
+            try:
+                dtype = DeploymentType(deployment_type)
+            except ValueError:
+                raise ActivationException(
+                    f"Invalid deployment type: {deployment_type}"
+                )
+
+            if dtype == DeploymentType.PODMAN:
+                PodmanReadLogs(
+                    settings.PODMAN_SOCKET_URL, activation_db_logger
+                ).run(instance)
+            elif dtype == DeploymentType.K8S:
+                logger.info(f"Read logs  DeploymentType: {dtype}")
+                raise NotImplementedError("K8S cannot read logs yet")
+            else:
+                raise ActivationException(f"Unsupported {deployment_type}")
+
+            logger.info(
+                "Finished reading logs from Activation, "
+                f"Name: {instance.name}, ID: {instance.id}"
+            )
+        except Exception as exe:
+            logger.exception(
+                f"Activation error while reading logs: {str(exe)}"
+            )
+            activation_db_logger.write(
+                f"Activation error, while reading logs: {str(exe)}"
+            )
 
     def _final_update(
         self,
@@ -367,6 +444,7 @@ class ActivateRulesets:
             activation_instance=activation_instance,
             heartbeat=settings.RULEBOOK_LIVENESS_CHECK_SECONDS,
             ports=ports,
+            detached=True,
         )
 
     def deactivate_in_podman(

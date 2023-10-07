@@ -93,6 +93,7 @@ class ActivationPodman:
         activation_instance: models.ActivationInstance,
         heartbeat: int,
         ports: dict,
+        detached: bool = False,
     ) -> None:
         container = None
         try:
@@ -163,6 +164,10 @@ class ActivationPodman:
                 ]
             )
 
+            if detached:
+                logger.info("Running in detached mode")
+                return
+
             self._save_logs(container=container, instance=activation_instance)
 
             if self.return_code == GRACEFUL_TERM:
@@ -187,7 +192,11 @@ class ActivationPodman:
             )
             raise ActivationRecordNotFound(message)
         finally:
-            if container and self.client.containers.exists(container.id):
+            if (
+                not detached
+                and container
+                and self.client.containers.exists(container.id)
+            ):
                 container_id = container.id
                 try:
                     container.remove(force=True, v=True)
