@@ -46,6 +46,7 @@ class ActivationKubernetes:
         self.batch_api = client.BatchV1Api()
         self.client_api = client.CoreV1Api()
         self.network_api = client.NetworkingV1Api()
+        self.detached = False
 
     @staticmethod
     def create_container(
@@ -288,9 +289,11 @@ class ActivationKubernetes:
         namespace,
         activation_instance,
         secret_name,
+        detached=False,
     ) -> None:
         # wait until old job instance has completely shut down.
         done = False
+        self.detached = detached
         while not done:
             if_job_exists = self.batch_api.list_namespaced_job(
                 namespace=namespace,
@@ -301,6 +304,7 @@ class ActivationKubernetes:
             if not if_job_exists.items:
                 break
 
+            # TODO ??
             time.sleep(10)
 
         logger.info(f"Create Job: {job_name}")
@@ -358,19 +362,23 @@ class ActivationKubernetes:
                 raise K8sActivationException(f"Job {obj_name} Failed: \n {e}")
 
             finally:
-                # remove secret if created
-                if secret_name:
-                    self.delete_secret(
-                        secret_name=secret_name,
-                        namespace=namespace,
-                    )
-                    logger.info(f"Secret: {secret_name} is deleted.")
-                # remove service(s) if created
-                self.delete_services(
-                    namespace=namespace,
-                    job_name=job_name,
-                )
-                logger.info(f"Service: {job_name} is deleted.")
+                if not detached:
+                    self._cleanup(secret_name, namespace, job_name)
+
+    def _cleanup(self, secret_name, namespace, job_name) -> None:
+        # remove secret if created
+        if secret_name:
+            self.delete_secret(
+                secret_name=secret_name,
+                namespace=namespace,
+            )
+            logger.info(f"Secret: {secret_name} is deleted.")
+        # remove service(s) if created
+        self.delete_services(
+            namespace=namespace,
+            job_name=job_name,
+        )
+        logger.info(f"Service: {job_name} is deleted.")
 
     def delete_secret(self, secret_name, namespace) -> None:
         try:
@@ -479,6 +487,9 @@ class ActivationKubernetes:
                             instance=activation_instance,
                             status=ActivationStatus.RUNNING,
                         )
+                        if self.detached:
+                            return
+
                         self.read_job_pod_log(
                             pod_name=pod_name,
                             namespace=namespace,
@@ -493,11 +504,12 @@ class ActivationKubernetes:
                             instance=activation_instance,
                             status=ActivationStatus.COMPLETED,
                         )
-                        self.read_job_pod_log(
-                            pod_name=pod_name,
-                            namespace=namespace,
-                            activation_instance_id=activation_instance.id,
-                        )
+                        if not self.detached:
+                            self.read_job_pod_log(
+                                pod_name=pod_name,
+                                namespace=namespace,
+                                activation_instance_id=activation_instance.id,
+                            )
                         w.stop()
 
                         done = True

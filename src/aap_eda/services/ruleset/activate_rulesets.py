@@ -31,6 +31,8 @@ from .exceptions import (
     ActivationRecordNotFound,
     DeactivationException,
 )
+from .kubernetes_exited import KubernetesExited
+from .kubernetes_read_logs import KubernetesReadLogs
 from .podman_exited import PodmanExited
 from .podman_read_logs import PodmanReadLogs
 
@@ -216,8 +218,9 @@ class ActivateRulesets:
                     settings.PODMAN_SOCKET_URL, activation_db_logger
                 ).get_status(instance)
             elif dtype == DeploymentType.K8S:
-                logger.info(f"Activation DeploymentType: {dtype}")
-                raise NotImplementedError
+                final_status = KubernetesExited(
+                    activation_db_logger
+                ).get_status(instance)
             else:
                 raise ActivationException(f"Unsupported {deployment_type}")
 
@@ -291,8 +294,7 @@ class ActivateRulesets:
                     settings.PODMAN_SOCKET_URL, activation_db_logger
                 ).run(instance)
             elif dtype == DeploymentType.K8S:
-                logger.info(f"Read logs  DeploymentType: {dtype}")
-                raise NotImplementedError("K8S cannot read logs yet")
+                KubernetesReadLogs(activation_db_logger).run(instance)
             else:
                 raise ActivationException(f"Unsupported {deployment_type}")
 
@@ -534,6 +536,7 @@ class ActivateRulesets:
             namespace=namespace,
             activation_instance=activation_instance,
             secret_name=secret_name,
+            detached=True,
         )
 
     def deactivate_in_k8s(self, activation_instance) -> None:
