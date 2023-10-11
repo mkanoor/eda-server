@@ -164,7 +164,7 @@ WSGI_APPLICATION = "aap_eda.wsgi.application"
 
 ASGI_APPLICATION = "aap_eda.asgi.application"
 
-
+MAX_CONCURRENT_ACTIVATIONS = 5
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 

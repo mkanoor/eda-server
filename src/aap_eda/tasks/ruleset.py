@@ -22,7 +22,13 @@ from rq.job import Job
 
 from aap_eda.core import models
 from aap_eda.core.enums import ActivationStatus, RestartPolicy
-from aap_eda.core.tasking import get_queue, job, job_from_queue, unique_enqueue
+from aap_eda.core.tasking import (
+    enqueue_in,
+    get_queue,
+    job,
+    job_from_queue,
+    unique_enqueue,
+)
 from aap_eda.services.ruleset.activate_rulesets import (
     ActivateRulesets,
     save_activation_and_instance,
@@ -47,6 +53,13 @@ def check_exited(activation_id: int, requester: str = "User") -> Job:
 
 
 def _activate(activation_id: int, requester: str = "User") -> None:
+    running_activations = _number_of_running_activations()
+    logger.info(f"Currently {running_activations} activations are running")
+    if running_activations >= settings.MAX_CONCURRENT_ACTIVATIONS:
+        logger.info("Requeuing activation to run after 30 seconds")
+        enqueue_in("activation", 30, activate, activation_id, requester)
+        return
+
     logger.info(
         f"Activating activation id: {activation_id} requested "
         f"by {requester}"
@@ -333,6 +346,13 @@ def _monitor_activations() -> None:
     _stop_unresponsive(now)
     _start_completed(now)
     _start_failed(now)
+
+
+def _number_of_running_activations() -> int:
+    running_statuses = [ActivationStatus.RUNNING]
+    return models.ActivationInstance.objects.filter(
+        status__in=running_statuses
+    ).count()
 
 
 def _drain_logs() -> None:

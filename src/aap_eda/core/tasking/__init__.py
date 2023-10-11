@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any, Callable, Iterable, Optional, Protocol, Type, Union
 
 from django_rq import enqueue, get_queue, job
@@ -24,6 +25,7 @@ __all__ = [
     "get_queue",
     "unique_enqueue",
     "job_from_queue",
+    "enqueue_in",
 ]
 
 logger = logging.getLogger(__name__)
@@ -222,3 +224,11 @@ def job_from_queue(queue: Queue, job_id: str) -> Optional[Job]:
     ]:
         return job
     return None
+
+
+def enqueue_in(queue_name: str, seconds: int, *args, **kwargs) -> Job:
+    """Enqueue a job after n number of seconds."""
+    queue = get_queue(queue_name)
+    if queue:
+        logger.info(f"re-queue task to be run in {seconds} seconds")
+        return queue.enqueue_in(timedelta(seconds=seconds), *args, **kwargs)
