@@ -35,10 +35,15 @@ router.register("activations", views.ActivationViewSet)
 router.register("activation-instances", views.ActivationInstanceViewSet)
 router.register("audit-rules", views.AuditRuleViewSet)
 router.register("users", views.UserViewSet)
+router.register("webhooks", views.WebhookViewSet)
 router.register(
     "users/me/awx-tokens",
     views.CurrentUserAwxTokenViewSet,
     basename="controller-token",
+)
+router.register(
+    "external_webhook",
+    views.ExternalWebhookViewSet,
 )
 router.register("credentials", views.CredentialViewSet)
 router.register("decision-environments", views.DecisionEnvironmentViewSet)

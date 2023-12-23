@@ -41,6 +41,8 @@ cryptography = "*"
 kubernetes = "*"
 podman = ">=4.5"
 rq-scheduler = "^0.10"
+xxhash = "*"
+psycopg = "*"
 # Experimental LDAP Integration https://issues.redhat.com/browse/AAP-16938
 # We are temporarily updating it to use latest from devel branch to keep consistency accross
 # other AAP components

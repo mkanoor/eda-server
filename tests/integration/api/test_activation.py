@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import uuid
 from typing import Any, Dict
 from unittest import mock
 
@@ -144,6 +145,16 @@ def create_activation_related_data(with_project=True):
     )
     extra_var_id = models.ExtraVar.objects.create(extra_var=TEST_EXTRA_VAR).pk
 
+    webhook1 = models.Webhook.objects.create(
+        uuid=uuid.uuid4(),
+        name="test-webhook1",
+        user=user,
+    )
+    webhook2 = models.Webhook.objects.create(
+        uuid=uuid.uuid4(),
+        name="test-webhook2",
+        user=user,
+    )
     return {
         "user_id": user_id,
         "decision_environment_id": decision_environment_id,
@@ -151,6 +162,7 @@ def create_activation_related_data(with_project=True):
         "rulebook_id": rulebook_id,
         "extra_var_id": extra_var_id,
         "credential_id": credential_id,
+        "webhooks": [webhook1, webhook2],
     }
 
 
@@ -163,6 +175,8 @@ def create_activation(fks: dict):
     activation_data["user_id"] = fks["user_id"]
     activation = models.Activation(**activation_data)
     activation.save()
+    for webhook in fks["webhooks"]:
+        activation.webhooks.add(webhook)
 
     return activation
 
@@ -808,3 +822,113 @@ def test_create_activation_more_tokens(client: APIClient):
         "More than one controller token found, "
         "currently only 1 token is supported"
     )
+
+
+@pytest.mark.django_db
+def test_create_activation_with_webhooks(client: APIClient):
+    fks = create_activation_related_data()
+    test_activation = TEST_ACTIVATION.copy()
+    test_activation["decision_environment_id"] = fks["decision_environment_id"]
+    test_activation["rulebook_id"] = fks["rulebook_id"]
+    test_activation["extra_var_id"] = fks["extra_var_id"]
+    test_activation["webhooks"] = [webhook.id for webhook in fks["webhooks"]]
+
+    client.post(f"{api_url_v1}/users/me/awx-tokens/", data=TEST_AWX_TOKEN)
+    response = client.post(f"{api_url_v1}/activations/", data=test_activation)
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.data
+    activation = models.Activation.objects.filter(id=data["id"]).first()
+    assert_activation_base_data(
+        data,
+        activation,
+    )
+    if activation.project:
+        assert data["project"] == {"id": activation.project.id, **TEST_PROJECT}
+    else:
+        assert not data["project"]
+    if activation.rulebook:
+        assert data["rulebook"] == {
+            "id": activation.rulebook.id,
+            **TEST_RULEBOOK,
+        }
+    else:
+        assert not data["rulebook"]
+    assert data["decision_environment"] == {
+        "id": activation.decision_environment.id,
+        **TEST_DECISION_ENV,
+    }
+    assert data["extra_var"] == {
+        "id": activation.extra_var.id,
+    }
+    assert activation.rulebook_name == TEST_RULEBOOK["name"]
+    assert activation.rulebook_rulesets == TEST_RULESETS
+    assert data["restarted_at"] is None
+    assert activation.status == ActivationStatus.PENDING
+    assert (
+        activation.status_message
+        == ACTIVATION_STATUS_MESSAGE_MAP[activation.status]
+    )
+    assert data["webhooks"][0]["name"] == "test-webhook1"
+    assert data["webhooks"][1]["name"] == "test-webhook2"
+
+
+@pytest.mark.django_db
+def test_create_activation_with_bad_webhook(client: APIClient):
+    fks = create_activation_related_data()
+    test_activation = TEST_ACTIVATION.copy()
+    test_activation["decision_environment_id"] = fks["decision_environment_id"]
+    test_activation["rulebook_id"] = fks["rulebook_id"]
+    test_activation["extra_var_id"] = fks["extra_var_id"]
+    test_activation["webhooks"] = [1492]
+
+    client.post(f"{api_url_v1}/users/me/awx-tokens/", data=TEST_AWX_TOKEN)
+    response = client.post(f"{api_url_v1}/activations/", data=test_activation)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        str(response.data["webhooks"][0])
+        == "Webhook with id 1492 does not exist"
+    )
+
+
+@pytest.mark.django_db
+def test_create_activation_with_webhooks_no_extravar(client: APIClient):
+    fks = create_activation_related_data()
+    test_activation = TEST_ACTIVATION.copy()
+    test_activation["decision_environment_id"] = fks["decision_environment_id"]
+    test_activation["rulebook_id"] = fks["rulebook_id"]
+    test_activation["webhooks"] = [webhook.id for webhook in fks["webhooks"]]
+    test_activation.pop("extra_var_id")
+    client.post(f"{api_url_v1}/users/me/awx-tokens/", data=TEST_AWX_TOKEN)
+    response = client.post(f"{api_url_v1}/activations/", data=test_activation)
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.data
+    activation = models.Activation.objects.filter(id=data["id"]).first()
+    assert_activation_base_data(
+        data,
+        activation,
+    )
+    if activation.project:
+        assert data["project"] == {"id": activation.project.id, **TEST_PROJECT}
+    else:
+        assert not data["project"]
+    if activation.rulebook:
+        assert data["rulebook"] == {
+            "id": activation.rulebook.id,
+            **TEST_RULEBOOK,
+        }
+    else:
+        assert not data["rulebook"]
+    assert data["decision_environment"] == {
+        "id": activation.decision_environment.id,
+        **TEST_DECISION_ENV,
+    }
+    assert activation.rulebook_name == TEST_RULEBOOK["name"]
+    assert activation.rulebook_rulesets == TEST_RULESETS
+    assert data["restarted_at"] is None
+    assert activation.status == ActivationStatus.PENDING
+    assert (
+        activation.status_message
+        == ACTIVATION_STATUS_MESSAGE_MAP[activation.status]
+    )
+    assert data["webhooks"][0]["name"] == "test-webhook1"
+    assert data["webhooks"][1]["name"] == "test-webhook2"

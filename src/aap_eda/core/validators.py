@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import hashlib
 import logging
 
 import yaml
@@ -19,6 +20,10 @@ from rest_framework import serializers
 from aap_eda.core import models
 
 logger = logging.getLogger(__name__)
+
+EDA_VALID_HASH_FORMATS = ("hex", "base64")
+
+EDA_VALID_WEBHOOK_AUTH_TYPES = ("hmac", "token")
 
 
 def check_if_rulebook_exists(rulebook_id: int) -> int:
@@ -82,3 +87,46 @@ def is_extra_var_dict(extra_var: str):
         raise serializers.ValidationError(
             "Extra var must be in JSON or YAML format"
         )
+
+
+def valid_hash_algorithm(algo: str):
+    if algo not in hashlib.algorithms_available:
+        raise serializers.ValidationError(
+            (
+                f"Invalid hash algorithm {algo} should "
+                f"be one of {hashlib.algorithms_available}"
+            )
+        )
+
+
+def valid_hash_format(fmt: str):
+    if fmt not in EDA_VALID_HASH_FORMATS:
+        raise serializers.ValidationError(
+            (
+                f"Invalid hash format {fmt} should "
+                f"be one of {EDA_VALID_HASH_FORMATS}"
+            )
+        )
+    return fmt
+
+
+def valid_webhook_auth_type(auth_type: str):
+    if auth_type not in EDA_VALID_WEBHOOK_AUTH_TYPES:
+        raise serializers.ValidationError(
+            (
+                f"Invalid auth_type{auth_type} should "
+                f"be one of {EDA_VALID_WEBHOOK_AUTH_TYPES}"
+            )
+        )
+    return auth_type
+
+
+def check_if_webhooks_exists(webhook_ids: list[int]) -> list[int]:
+    for webhook_id in webhook_ids:
+        try:
+            models.Webhook.objects.get(pk=webhook_id)
+        except models.Webhook.DoesNotExist:
+            raise serializers.ValidationError(
+                f"Webhook with id {webhook_id} does not exist"
+            )
+    return webhook_ids

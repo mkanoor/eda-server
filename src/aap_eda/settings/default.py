@@ -422,3 +422,23 @@ AUTHENTICATION_BACKENDS = [
     "ansible_base.authentication.backend.AnsibleBaseAuth",
     "django.contrib.auth.backends.ModelBackend",
 ]
+
+SERVER_GUID = settings.get("SERVER_GUID")
+WEBHOOK_URL_PREFIX = settings.get(
+    "WEBHOOK_URL_PREFIX",
+    f"https://ui.eda.local:8443/{SERVER_GUID}/api/eda/v1/external_webhook",
+)
+
+_DEFAULT_PG_NOTIFY_DSN = (
+    f"host={DATABASES['default']['HOST']} "
+    f"port={DATABASES['default']['PORT']} "
+    f"dbname={DATABASES['default']['NAME']} "
+    f"user={DATABASES['default']['USER']} "
+    f"password={DATABASES['default']['PASSWORD']}"
+)
+
+
+PG_NOTIFY_DSN = settings.get("PG_NOTIFY_DSN", _DEFAULT_PG_NOTIFY_DSN)
+PG_NOTIFY_DSN_CLIENT = settings.get(
+    "PG_NOTIFY_DSN_CLIENT", _DEFAULT_PG_NOTIFY_DSN
+)

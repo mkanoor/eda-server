@@ -22,6 +22,10 @@ x-environment:
   - EDA_MAX_RUNNING_ACTIVATIONS=${EDA_MAX_RUNNING_ACTIVATIONS:-5}
   - EDA_ACTIVATION_RESTART_SECONDS_ON_COMPLETE=${EDA_ACTIVATION_RESTART_SECONDS_ON_COMPLETE:-60}
   - EDA_ACTIVATION_RESTART_SECONDS_ON_FAILURE=${EDA_ACTIVATION_RESTART_SECONDS_ON_FAILURE:-60}
+  - SERVER_GUID=edgecafe-beef-feed-fade-decadeedgecafe
+  - EDA_APP_LOG_LEVEL=DEBUG
+  - WEBHOOK_HOST=${WEBHOOK_HOST:-webhook-api:8000}
+  - WEBHOOK_SERVER=http://${WEBHOOK_HOST:-webhook-api:8000}
 
 services:
   podman-pre-setup:
@@ -66,7 +70,7 @@ services:
         && aap-eda-manage create_initial_data
         && scripts/create_superuser.sh
         && gunicorn -b 0.0.0.0:8000
-        -w ${EDA_API_WORKERS:-4} aap_eda.wsgi
+        -w ${EDA_API_WORKERS:-1} aap_eda.wsgi
         --access-logfile -
     ports:
       - '8000:8000'
@@ -77,6 +81,27 @@ services:
         condition: service_healthy
     healthcheck:
       test: [ 'CMD', 'curl', '-q', 'http://localhost:8000/_healthz' ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+  webhook-api:
+    image: "${EDA_IMAGE:-quay.io/ansible/eda-server:main}"
+    environment: *common-env
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        gunicorn -b 0.0.0.0:8000
+        -w ${EDA_API_WORKERS:-1} aap_eda.wsgi
+        --access-logfile -
+    ports:
+      - '8555:8000'
+    depends_on:
+      eda-api:
+        condition: service_healthy
+    healthcheck:
+      test: [ 'CMD', 'curl', '-q', 'http://localhost:8555/_healthz' ]
       interval: 30s
       timeout: 5s
       retries: 10
@@ -132,7 +157,7 @@ services:
   eda-activation-worker:
     user: "${EDA_POD_USER_ID:-0}"
     deploy:
-      replicas: ${EDA_ACTIVATION_WORKERS:-2}
+      replicas: ${EDA_ACTIVATION_WORKERS:-1}
     image: "${EDA_IMAGE:-quay.io/ansible/eda-server:main}"
     environment: *common-env
     command:

@@ -14,24 +14,22 @@ x-environment:
   - EDA_CONTROLLER_SSL_VERIFY=${EDA_CONTROLLER_SSL_VERIFY:-yes}
   - EDA_PROTOCOL=http
   - EDA_HOST=${EDA_HOST:-eda-api:8000}
+  - WEBHOOK_HOST=${WEBHOOK_HOST:-webhook-api:8000}
   - EDA_SERVER=http://${EDA_HOST:-eda-api:8000}
+  - WEBHOOK_SERVER=http://${WEBHOOK_HOST:-webhook-api:8000}
   - EDA_ANSIBLE_RULEBOOK_LOG_LEVEL=${EDA_ANSIBLE_RULEBOOK_LOG_LEVEL:-'-v'}
   - EDA_CONTAINER_NAME_PREFIX=${EDA_CONTAINER_NAME_PREFIX:-eda}
   - EDA_PODMAN_ENV_VARS=${EDA_PODMAN_ENV_VARS:-'@none None'}
   - EDA_MAX_RUNNING_ACTIVATIONS=${EDA_MAX_RUNNING_ACTIVATIONS:-5}
   - EDA_ACTIVATION_RESTART_SECONDS_ON_COMPLETE=${EDA_ACTIVATION_RESTART_SECONDS_ON_COMPLETE:-60}
   - EDA_ACTIVATION_RESTART_SECONDS_ON_FAILURE=${EDA_ACTIVATION_RESTART_SECONDS_ON_FAILURE:-60}
+  - SERVER_GUID=edgecafe-beef-feed-fade-decadeedgecafe
+  - EDA_APP_LOG_LEVEL=DEBUG
+  - EDA_PG_NOTIFY_DSN_CLIENT="host=host.containers.internal port=5432 dbname=eda user=postgres password=secret"
+  - EDA_PG_NOTIFY_DSN="host=postgres port=5432 dbname=eda user=postgres password=secret"
+  - EDA_WEBHOOK_URL_PREFIX=${EDA_WEBHOOK_URL_PREFIX:-https://d0b6-173-2-89-186.ngrok-free.app/edgecafe-beef-feed-fade-decadeedgecafe/api/eda/v1/external_webhook}
 
 services:
-  eda-ui:
-    image: "${EDA_UI_IMAGE:-quay.io/ansible/eda-ui:main}"
-    environment: *common-env
-    ports:
-      - '8443:443'
-    depends_on:
-      eda-api:
-        condition: service_healthy
-
   eda-api:
     image: "${EDA_IMAGE:-quay.io/ansible/eda-server:main}"
     environment: *common-env
@@ -57,6 +55,29 @@ services:
       interval: 30s
       timeout: 5s
       retries: 10
+    volumes:
+      - ${EDA_HOST_PODMAN_SOCKET_URL:-/run/user/501/podman/podman.sock}:/run/podman/podman.sock:z
+
+  webhook-api:
+    image: "${EDA_IMAGE:-quay.io/ansible/eda-server:main}"
+    environment: *common-env
+    security_opt:
+      - label=disable
+    command:
+      - /bin/bash
+      - -c
+      - aap-eda-manage runserver 0.0.0.0:8000
+    ports:
+      - '8555:8000'
+    depends_on:
+      eda-api:
+        condition: service_healthy
+    healthcheck:
+      test: [ 'CMD', 'curl', '-q', 'http://0.0.0.0:8000/_healthz' ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     volumes:
       - ${EDA_HOST_PODMAN_SOCKET_URL:-/run/user/501/podman/podman.sock}:/run/podman/podman.sock:z
 
@@ -164,6 +185,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  eda-ui:
+    image: "${EDA_UI_IMAGE:-quay.io/ansible/eda-ui:main}"
+    environment: *common-env
+    ports:
+      - '8443:443'
+    depends_on:
+      webhook-api:
+        condition: service_healthy
 
 volumes:
   postgres_data: {}

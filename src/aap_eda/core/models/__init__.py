@@ -35,6 +35,7 @@ from .rulebook import (
     Ruleset,
 )
 from .user import AwxToken, User
+from .webhook import Webhook
 
 __all__ = [
     "ActivationInstanceJobInstance",
@@ -61,4 +62,5 @@ __all__ = [
     "Credential",
     "DecisionEnvironment",
     "ActivationRequestQueue",
+    "Webhook",
 ]

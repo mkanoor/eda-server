@@ -28,6 +28,7 @@ from aap_eda.core.exceptions import (
 )
 
 from .user import User
+from .webhook import Webhook
 
 __all__ = (
     "Activation",
@@ -95,6 +96,10 @@ class Activation(models.Model):
         default=None,
         on_delete=models.SET_NULL,
         related_name="+",
+    )
+    webhooks = models.ManyToManyField(
+        Webhook,
+        default=None,
     )
 
     def save(self, *args, **kwargs):

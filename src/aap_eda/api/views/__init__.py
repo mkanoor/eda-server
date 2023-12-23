@@ -16,6 +16,7 @@ from .activation import ActivationInstanceViewSet, ActivationViewSet
 from .auth import RoleViewSet, SessionLoginView, SessionLogoutView
 from .credential import CredentialViewSet
 from .decision_environment import DecisionEnvironmentViewSet
+from .external_webhook import ExternalWebhookViewSet
 from .project import ExtraVarViewSet, ProjectViewSet
 from .rulebook import (
     AuditRuleViewSet,
@@ -25,6 +26,7 @@ from .rulebook import (
 )
 from .tasks import TaskViewSet
 from .user import CurrentUserAwxTokenViewSet, CurrentUserView, UserViewSet
+from .webhook import WebhookViewSet
 
 __all__ = (
     # auth
@@ -51,4 +53,8 @@ __all__ = (
     "CredentialViewSet",
     # decision_environment
     "DecisionEnvironmentViewSet",
+    # webhook
+    "WebhookViewSet",
+    # External webhook
+    "ExternalWebhookViewSet",
 )

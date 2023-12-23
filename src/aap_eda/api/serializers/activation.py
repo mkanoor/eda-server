@@ -21,11 +21,18 @@ from aap_eda.api.serializers.project import (
     ProjectRefSerializer,
 )
 from aap_eda.api.serializers.rulebook import RulebookRefSerializer
+from aap_eda.api.serializers.webhook import WebhookOutSerializer
 from aap_eda.core import models, validators
 
 
 class ActivationSerializer(serializers.ModelSerializer):
     """Serializer for the Activation model."""
+
+    webhooks = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=WebhookOutSerializer(),
+    )
 
     class Meta:
         model = models.Activation
@@ -48,6 +55,7 @@ class ActivationSerializer(serializers.ModelSerializer):
             "created_at",
             "modified_at",
             "status_message",
+            "webhooks",
         ]
         read_only_fields = [
             "id",
@@ -62,6 +70,11 @@ class ActivationListSerializer(serializers.ModelSerializer):
 
     rules_count = serializers.IntegerField()
     rules_fired_count = serializers.IntegerField()
+    webhooks = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=WebhookOutSerializer(),
+    )
 
     class Meta:
         model = models.Activation
@@ -84,6 +97,7 @@ class ActivationListSerializer(serializers.ModelSerializer):
             "created_at",
             "modified_at",
             "status_message",
+            "webhooks",
         ]
         read_only_fields = ["id", "created_at", "modified_at"]
 
@@ -91,6 +105,10 @@ class ActivationListSerializer(serializers.ModelSerializer):
         rules_count, rules_fired_count = get_rules_count(
             activation.ruleset_stats
         )
+        webhooks = [
+            WebhookOutSerializer(webhook).data
+            for webhook in activation.webhooks.all()
+        ]
 
         return {
             "id": activation.id,
@@ -111,6 +129,7 @@ class ActivationListSerializer(serializers.ModelSerializer):
             "created_at": activation.created_at,
             "modified_at": activation.modified_at,
             "status_message": activation.status_message,
+            "webhooks": webhooks,
         }
 
 
@@ -130,6 +149,13 @@ class ActivationCreateSerializer(serializers.ModelSerializer):
     )
     user = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
+    webhooks = serializers.ListField(
+        required=False,
+        allow_null=True,
+        child=serializers.IntegerField(),
+        validators=[validators.check_if_webhooks_exists],
+    )
+
     def validate(self, data):
         user = data["user"]
         validators.check_awx_tokens(user.id)
@@ -147,6 +173,7 @@ class ActivationCreateSerializer(serializers.ModelSerializer):
             "extra_var_id",
             "user",
             "restart_policy",
+            "webhooks",
         ]
 
     def create(self, validated_data):
@@ -225,6 +252,7 @@ class ActivationReadSerializer(serializers.ModelSerializer):
             "modified_at",
             "restarted_at",
             "status_message",
+            "webhooks",
         ]
         read_only_fields = ["id", "created_at", "modified_at", "restarted_at"]
 
@@ -266,6 +294,10 @@ class ActivationReadSerializer(serializers.ModelSerializer):
             else None
         )
 
+        webhooks = [
+            WebhookOutSerializer(webhook).data
+            for webhook in activation.webhooks.all()
+        ]
         return {
             "id": activation.id,
             "name": activation.name,
@@ -290,6 +322,7 @@ class ActivationReadSerializer(serializers.ModelSerializer):
             "modified_at": activation.modified_at,
             "restarted_at": restarted_at,
             "status_message": activation.status_message,
+            "webhooks": webhooks,
         }
 
 
