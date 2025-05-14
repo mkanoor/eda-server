@@ -78,11 +78,57 @@ INPUT_SANS_TYPE = {
     "required": ["host"],
 }
 
+EXTERNAL_CREDENTIAL_INPUT = {
+    "fields": [
+        {
+            "id": "host",
+            "label": "Authentication URL",
+            "type": "string",
+            "help_text": (
+                "Authentication endpoint for the container registry."
+            ),
+            "default": "quay.io",
+        },
+        {"id": "username", "label": "Username", "type": "string"},
+        {
+            "id": "password",
+            "label": "Password or Token",
+            "type": "string",
+            "secret": True,
+            "help_text": ("A password or token used to authenticate with"),
+        },
+        {
+            "id": "verify_ssl",
+            "label": "Verify SSL",
+            "type": "boolean",
+            "default": True,
+        },
+    ],
+    "metadata": [
+        {
+            "id": "secret_backend",
+            "label": "Name of Secret Backend",
+            "type": "string",
+            "help_text": ("The name of the kv secret backend"),
+        },
+        {
+            "id": "secret_path",
+            "label": "Path to secret",
+            "type": "string",
+        },
+    ],
+    "required": ["host", "secret_backend"],
+}
+
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ("inputs", "injectors"),
     [
+        (
+            EXTERNAL_CREDENTIAL_INPUT,
+            {},
+        ),
         (
             {},
             {},
@@ -798,3 +844,57 @@ def test_create_credential_type_with_duplicates(
     assert response.status_code == status_code
     if message and key:
         assert message in response.data[key][0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("inputs", "metadata", "status_code"),
+    [
+        (
+            {
+                "url": "http://ec2-44-222-242-77.compute-1.amazonaws.com:5643",
+                "api_version": "v2",
+                "token": "mkanoor123",
+            },
+            {"secret_path": "secret/foo", "secret_key": "bar"},
+            status.HTTP_202_ACCEPTED,
+        ),
+        (
+            {
+                "api_version": "v2",
+                "token": "mkanoor123",
+            },
+            {"secret_path": "secret/foo", "secret_key": "bar"},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+        (
+            {
+                "url": "http://ec2-44-222-242-77.compute-1.amazonaws.com:5643",
+                "api_version": "v2",
+                "token": "mkanoor123",
+            },
+            {"secret_path": "secret/foo"},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+    ],
+)
+def test_credential_type_test(
+    superuser_client: APIClient,
+    default_organization: models.Organization,
+    preseed_credential_types,
+    inputs,
+    metadata,
+    status_code,
+):
+    hashi_type = models.CredentialType.objects.get(
+        name=enums.DefaultCredentialType.HASHICORP_LOOKUP
+    )
+
+    data_in = {
+        "inputs": inputs,
+        "metadata": metadata,
+    }
+    response = superuser_client.post(
+        f"{api_url_v1}/credential-types/{hashi_type.id}/test/", data=data_in
+    )
+    assert response.status_code == status_code

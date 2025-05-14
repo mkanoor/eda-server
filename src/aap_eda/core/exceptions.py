@@ -43,3 +43,12 @@ class DuplicateEnvKeyError(Exception):
 
 class InvalidEnvKeyError(Exception):
     pass
+
+class SourceCredentialMissing(Exception):
+    pass
+
+class TargetCredentialMissing(Exception):
+    pass
+
+class RuntimeErrorFetchingExternalSecret(Exception):
+    pass

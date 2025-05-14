@@ -67,6 +67,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": CRUD,
             "eda_credential": CRUD,
+            "credential_input_source": CRUD,
             "event_stream": CRUD,
         },
     },
@@ -93,6 +94,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": ["add", "view", "change"],
             "eda_credential": ["add", "view", "change"],
+            "credential_input_source": ["add", "view", "change"],
             "event_stream": ["add", "view", "change"],
         },
     },
@@ -120,6 +122,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": ["add", "view", "change"],
             "eda_credential": ["add", "view", "change"],
+            "credential_input_source": ["add", "view", "change"],
             "event_stream": ["add", "view", "change"],
         },
     },
@@ -140,6 +143,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": ["view"],
             "eda_credential": ["view"],
+            "credential_input_source": ["view"],
             "event_stream": ["view"],
         },
     },
@@ -158,6 +162,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": ["view"],
             "eda_credential": ["view"],
+            "credential_input_source": ["view"],
             "event_stream": ["view"],
         },
     },
@@ -176,6 +181,7 @@ ORG_ROLES = [
             "rulebook": ["view"],
             "decision_environment": ["view"],
             "eda_credential": ["view"],
+            "credential_input_source": ["view"],
             "event_stream": ["view"],
         },
     },
@@ -1041,6 +1047,233 @@ POSTGRES_CREDENTIAL_INJECTORS = {
         "template.postgres_sslkey": "{{ postgres_sslkey }}",
     },
 }
+
+HASHICORP_VAULT_SECRET_LOOKUP_INPUTS = {
+    "fields": [
+        {
+            "id": "url",
+            "label": "Server URL",
+            "type": "string",
+            "format": "url",
+            "help_text": "The URL to the HashiCorp Vault",
+        },
+        {
+            "id": "token",
+            "label": "Token",
+            "type": "string",
+            "secret": True,
+            "help_text": (
+                "The access token used to authenticate to " "the Vault server"
+            ),
+        },
+        {
+            "id": "cacert",
+            "label": "CA Certificate",
+            "type": "string",
+            "multiline": True,
+            "help_text": (
+                "The CA certificate used to verify the SSL "
+                "certificate of the Vault server"
+            ),
+        },
+        {
+            "id": "role_id",
+            "label": "AppRole role_id",
+            "type": "string",
+            "multiline": False,
+            "help_text": "The Role ID for AppRole Authentication",
+        },
+        {
+            "id": "secret_id",
+            "label": "AppRole secret_id",
+            "type": "string",
+            "multiline": False,
+            "secret": True,
+            "help_text": "The Secret ID for AppRole Authentication",
+        },
+        {
+            "id": "client_cert_public",
+            "label": "Client Certificate",
+            "type": "string",
+            "multiline": True,
+            "help_text": (
+                "The PEM-encoded client certificate used for TLS client "
+                "authentication. This should include the certificate and "
+                "any intermediate certififcates."
+            ),
+        },
+        {
+            "id": "client_cert_private",
+            "label": "Client Certificate Key",
+            "type": "string",
+            "multiline": True,
+            "secret": True,
+            "help_text": (
+                "The certificate private key used for TLS client "
+                "authentication."
+            ),
+        },
+        {
+            "id": "client_cert_role",
+            "label": "TLS Authentication Role",
+            "type": "string",
+            "multiline": False,
+            "help_text": (
+                "The role configured in Hashicorp Vault for TLS "
+                "client authentication. If not provided, Hashicorp "
+                "Vault may assign roles based on the certificate used."
+            ),
+        },
+        {
+            "id": "namespace",
+            "label": "Namespace name (Vault Enterprise only)",
+            "type": "string",
+            "multiline": False,
+            "help_text": (
+                "Name of the namespace to use when authenticate and "
+                "retrieve secrets"
+            ),
+        },
+        {
+            "id": "kubernetes_role",
+            "label": "Kubernetes role",
+            "type": "string",
+            "multiline": False,
+            "help_text": (
+                "The Role for Kubernetes Authentication. This is the "
+                "named role, configured in Vault server, for AWX pod "
+                "auth policies. see https://"
+                "www.vaultproject.io/docs/auth/kubernetes#configuration"
+            ),
+        },
+        {
+            "id": "username",
+            "label": "Username",
+            "type": "string",
+            "secret": False,
+            "help_text": "Username for user authentication.",
+        },
+        {
+            "id": "password",
+            "label": "Password",
+            "type": "string",
+            "secret": True,
+            "help_text": "Password for user authentication.",
+        },
+        {
+            "id": "default_auth_path",
+            "label": "Path to Auth",
+            "type": "string",
+            "multiline": False,
+            "default": "approle",
+            "help_text": (
+                "The Authentication path to use if one isn't provided "
+                "in the metadata when linking to an input field. "
+                "Defaults to 'approle'"
+            ),
+        },
+        {
+            "id": "api_version",
+            "label": "API Version",
+            "type": "string",
+            "choices": ["v1", "v2"],
+            "help_text": (
+                "API v1 is for static key/value lookups. "
+                "API v2 is for versioned key/value lookups."
+            ),
+            "default": "v1",
+        },
+    ],
+    "metadata": [
+        {
+            "id": "secret_backend",
+            "label": "Name of Secret Backend",
+            "type": "string",
+            "help_text": (
+                "The name of the kv secret backend (if left empty, "
+                "the first segment of the secret path will be used)."
+            ),
+        },
+        {
+            "id": "secret_path",
+            "label": "Path to Secret",
+            "type": "string",
+            "help_text": (
+                "The path to the secret stored in the secret backend "
+                "e.g, /some/secret/. It is recommended that you use "
+                "the secret backend field to identify the storage "
+                "backend and to use this field for locating a specific "
+                "secret within that store. However, if you prefer to "
+                "fully identify both the secret backend and one of its "
+                "secrets using only this field, join their locations "
+                "into a single path without any additional separators, "
+                "e.g, /location/of/backend/some/secret."
+            ),
+        },
+        {
+            "id": "auth_path",
+            "label": "Path to Auth",
+            "type": "string",
+            "multiline": False,
+            "help_text": (
+                "The path where the Authentication method is "
+                "mounted e.g, approle"
+            ),
+        },
+        {
+            "id": "secret_key",
+            "label": "Key Name",
+            "type": "string",
+            "help_text": "The name of the key to look up in the secret.",
+        },
+        {
+            "id": "secret_version",
+            "label": "Secret Version (v2 only)",
+            "type": "string",
+            "help_text": (
+                "Used to specify a specific secret version (if left "
+                "empty, the latest version will be used)."
+            ),
+        },
+    ],
+    "required": ["url", "secret_path", "api_version", "secret_key"],
+}
+
+AWS_SECRETS_MANAGER_LOOKUP_INPUTS = {
+    "fields": [
+        {
+            "id": "aws_access_key",
+            "label": "AWS Access Key",
+            "type": "string"
+        },
+        {
+            "id": "aws_secret_key",
+            "label": "AWS Secret Key",
+            "type": "string",
+            "secret": true
+        }
+    ],
+    "metadata": [
+        {
+            "id": "region_name",
+            "label": "AWS Secrets Manager Region",
+            "type": "string",
+            "help_text": "Region which the secrets manager is located"
+        },
+        {
+            "id": "secret_name",
+            "label": "AWS Secret Name",
+            "type": "string"
+        }
+    ],
+    "required": [
+        "aws_access_key",
+        "aws_secret_key",
+        "region_name",
+        "secret_name"
+    ]
+}
+
 CREDENTIAL_TYPES = [
     {
         "name": enums.DefaultCredentialType.SOURCE_CONTROL,
@@ -1243,6 +1476,22 @@ CREDENTIAL_TYPES = [
         "description": (
             "Credential for analytics that use for authentication."
         ),
+    },
+    {
+        "name": enums.DefaultCredentialType.HASHICORP_LOOKUP,
+        "namespace": "hashivault_kv",
+        "kind": "external",
+        "inputs": HASHICORP_VAULT_SECRET_LOOKUP_INPUTS,
+        "injectors": {},
+        "managed": True,
+    },
+    {
+        "name": enums.DefaultCredentialType.AWS_SECRETS_LOOKUP,
+        "namespace": "aws_secretsmanager_credential",
+        "kind": "external",
+        "inputs": AWS_SECRETS_MANAGER_LOOKUP_INPUTS,
+        "injectors": {},
+        "managed": True,
     },
 ]
 

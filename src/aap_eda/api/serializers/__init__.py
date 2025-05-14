@@ -25,10 +25,18 @@ from .activation import (
 )
 from .auth import JWTTokenSerializer, LoginSerializer, RefreshTokenSerializer
 from .config import ConfigSerializer
+from .credential_input_source import (
+    CredentialInputSourceCreateSerializer,
+    CredentialInputSourceReferenceSerializer,
+    CredentialInputSourceRefSerializer,
+    CredentialInputSourceSerializer,
+    CredentialInputSourceUpdateSerializer,
+)
 from .credential_type import (
     CredentialTypeCreateSerializer,
     CredentialTypeRefSerializer,
     CredentialTypeSerializer,
+    CredentialTypeTestSerializer,
 )
 from .decision_environment import (
     DecisionEnvironmentCreateSerializer,
