@@ -27,7 +27,10 @@ from aap_eda.api.constants import (
     EDA_SERVER_VAULT_LABEL,
     SOURCE_MAPPING_ERROR_KEY,
 )
-from aap_eda.api.exceptions import InvalidEventStreamSource
+from aap_eda.api.exceptions import (
+    ExternalSMSException,
+    InvalidEventStreamSource,
+)
 from aap_eda.api.serializers.decision_environment import (
     DecisionEnvironmentRefSerializer,
 )
@@ -46,8 +49,12 @@ from aap_eda.api.serializers.user import BasicUserSerializer
 from aap_eda.api.vault import encrypt_string
 from aap_eda.core import models, validators
 from aap_eda.core.enums import DefaultCredentialType, ProcessParentType
-from aap_eda.core.exceptions import ParseError
+from aap_eda.core.exceptions import (
+    ParseError,
+    RuntimeErrorFetchingExternalSecret,
+)
 from aap_eda.core.utils.credentials import get_secret_fields
+from aap_eda.core.utils.external_sms import get_external_secrets
 from aap_eda.core.utils.k8s_service_name import create_k8s_service_name
 from aap_eda.core.utils.rulebook import (
     build_source_list,
@@ -147,6 +154,10 @@ def _update_extra_vars_from_eda_credentials(
         schema_inputs = eda_credential.credential_type.inputs
         injectors = eda_credential.credential_type.injectors
         secret_fields = get_secret_fields(schema_inputs)
+        try:
+            external_data = get_external_secrets(eda_credential.id)
+        except RuntimeErrorFetchingExternalSecret as err:
+            raise ExternalSMSException(str(err))
 
         user_inputs = yaml.safe_load(eda_credential.inputs.get_secret_value())
 
@@ -164,6 +175,16 @@ def _update_extra_vars_from_eda_credentials(
                     plaintext=value,
                     vault_id=EDA_SERVER_VAULT_LABEL,
                 )
+
+        for key, value in external_data.items():
+            if key in secret_fields and value is not None:
+                user_inputs[key] = encrypt_string(
+                    password=vault_data.password,
+                    plaintext=value,
+                    vault_id=EDA_SERVER_VAULT_LABEL,
+                )
+            else:
+                user_inputs[key] = value
 
         injected_extra_vars = substitute_variables(
             injectors["extra_vars"], user_inputs

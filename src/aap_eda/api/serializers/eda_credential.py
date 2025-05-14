@@ -21,7 +21,11 @@ from aap_eda.api.serializers.fields.basic_user import BasicUserFieldSerializer
 from aap_eda.api.serializers.organization import OrganizationRefSerializer
 from aap_eda.api.serializers.user import BasicUserSerializer
 from aap_eda.core import enums, models, validators
-from aap_eda.core.utils.credentials import inputs_to_display, validate_inputs
+from aap_eda.core.utils.credentials import (
+    inputs_from_store,
+    inputs_to_display,
+    validate_inputs,
+)
 from aap_eda.core.utils.crypto.base import SecretValue
 
 
@@ -144,6 +148,7 @@ class EdaCredentialCreateSerializer(serializers.ModelSerializer):
             "required": "Organization is required",
         },
     )
+
     inputs = serializers.JSONField()
 
     def validate(self, data):
@@ -313,3 +318,29 @@ def get_references(eda_credential: models.EdaCredential) -> list[dict]:
         resources.append(resource)
 
     return resources
+
+
+class EdaCredentialTestSerializer(serializers.ModelSerializer):
+    metadata = serializers.JSONField(
+        required=False,
+        help_text="Metadata of the credential for testing",
+    )
+
+    def validate(self, data):
+        metadata = data.get("metadata")
+        inputs = inputs_from_store(self.instance.inputs.get_secret_value())
+
+        errors = validators.check_credential_test_data(
+            self.instance.credential_type, inputs, metadata
+        )
+        if bool(errors):
+            raise serializers.ValidationError(errors)
+
+        data["inputs"] = inputs
+        return data
+
+    class Meta:
+        model = models.EdaCredential
+        fields = [
+            "metadata",
+        ]
