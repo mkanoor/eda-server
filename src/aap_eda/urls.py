@@ -41,3 +41,5 @@ if settings.DEBUG:
     urlpatterns += [
         path("_dev/auth/", include("rest_framework.urls")),
     ]
+
+print(urlpatterns)

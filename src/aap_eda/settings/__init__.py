@@ -12,4 +12,4 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from .default import *  # noqa: F403
+from .defaults import *  # noqa: F403
