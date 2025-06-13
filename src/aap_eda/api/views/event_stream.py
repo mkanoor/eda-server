@@ -30,8 +30,10 @@ from rest_framework.response import Response
 
 from aap_eda.api import exceptions as api_exc, filters, serializers
 from aap_eda.core import models
-from aap_eda.core.enums import ResourceType
+from aap_eda.core.enums import EventStreamAuthType, ResourceType
+from aap_eda.core.exceptions import GatewayAPIError, MissingCredentials
 from aap_eda.core.utils import logging_utils
+from aap_eda.services.sync_certs import SyncCertificates
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,8 @@ class EventStreamViewSet(
                 f"Event stream '{event_stream.name}' is being referenced by "
                 f"{ref_count} activation(s) and cannot be deleted"
             )
+        x_dab_jw_token = request.headers.get("x-dab-jw-token")
+        self._sync_certificates(event_stream, "destroy", x_dab_jw_token)
         self.perform_destroy(event_stream)
 
         logger.info(
@@ -182,6 +186,8 @@ class EventStreamViewSet(
             RoleDefinition.objects.give_creator_permissions(
                 request.user, serializer.instance
             )
+            x_dab_jw_token = request.headers.get("x-dab-jw-token")
+            self._sync_certificates(response, "create", x_dab_jw_token)
 
         logger.info(
             logging_utils.generate_simple_audit_log(
@@ -307,3 +313,29 @@ class EventStreamViewSet(
             )
         )
         return self.get_paginated_response(serializer.data)
+
+    def _sync_certificates(
+        self,
+        event_stream: models.EventStream,
+        action: str,
+        x_dab_jw_token: str,
+    ):
+        if (
+            event_stream.eda_credential.credential_type.kind
+            == EventStreamAuthType.MTLS
+        ):
+            try:
+                logger.error(
+                    "Madhu Calling SyncCerts %s certificates %s",
+                    x_dab_jw_token,
+                    action,
+                )
+                obj = SyncCertificates(
+                    event_stream.eda_credential.id, x_dab_jw_token
+                )
+                if action == "destroy":
+                    obj.delete(event_stream.id)
+                else:
+                    obj.update()
+            except (GatewayAPIError, MissingCredentials) as ex:
+                logger.error("Could not %s certificates %s", action, str(ex))
