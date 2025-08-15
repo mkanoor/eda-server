@@ -83,6 +83,7 @@ awx-plugins-core = { version = "^0.0.1a10", extras = [
                               "credentials-thycotic-dsv",
                               "credentials-thycotic-tss"
                     ]}
+tembo-pgmq-python = {extras = ["async"], version = "^0.10.0"}
 
 
 [tool.poetry.group.test.dependencies]

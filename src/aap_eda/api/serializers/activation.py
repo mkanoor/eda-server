@@ -92,10 +92,25 @@ def _update_event_stream_source(validated_data: dict) -> str:
             event_stream_id = source_map.get("event_stream_id")
             obj = models.EventStream.objects.get(id=event_stream_id)
 
+            # sources_info[obj.name] = {
+            #    "ansible.eda.pg_listener": {
+            #        "dsn": PG_NOTIFY_DSN,
+            #        "channels": [obj.channel_name],
+            #    },
+            # }
             sources_info[obj.name] = {
-                "ansible.eda.pg_listener": {
-                    "dsn": PG_NOTIFY_DSN,
-                    "channels": [obj.channel_name],
+                "eda.builtin.pgmq_listener": {
+                    "host": '"{{postgres_db_host}}"',
+                    "port": '"{{postgres_db_port}}"',
+                    "database": '"{{postgres_db_name}}"',
+                    "user": '"{{postgres_db_user}}"',
+                    "password": '"{{postgres_db_password}}"',
+                    "sslmode": '"{{postgres_sslmode}}"',
+                    "sslcert": '"{{eda.filename.postgres_sslcert|default(None)}}"',
+                    "sslkey": '"{{eda.filename.postgres_sslkey|default(None)}}"',
+                    "sslpassword": '"{{postgres_sslpassword|default(None)}}"',
+                    "sslrootcert": '"{{eda.filename.postgres_sslrootcert|default(None)}}"',
+                    "queues": [obj.channel_name],
                 },
             }
 
@@ -210,7 +225,7 @@ def _update_event_streams_and_credential(validated_data: dict):
     )
     eda_credentials = validated_data.get("eda_credentials", [])
     postgres_cred = models.EdaCredential.objects.filter(
-        name=settings.DEFAULT_SYSTEM_PG_NOTIFY_CREDENTIAL_NAME
+        name="pgmq",
     ).first()
     if postgres_cred.id not in eda_credentials:
         eda_credentials.append(postgres_cred.id)

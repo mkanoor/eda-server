@@ -22,7 +22,7 @@ from .base import BaseOrgModel, PrimordialModel, UniqueNamedModel
 
 __all__ = "EventStream"
 
-EDA_EVENT_STREAM_CHANNEL_PREFIX = "eda_event_stream_"
+EDA_EVENT_STREAM_CHANNEL_PREFIX = "eda_"
 
 
 class EventStream(BaseOrgModel, UniqueNamedModel, PrimordialModel):

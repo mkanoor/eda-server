@@ -13,11 +13,13 @@
 #  limitations under the License.
 """Module providing external event stream post."""
 
+import asyncio
 import datetime
 import logging
 import urllib.parse
 
 import yaml
+from asyncpg.exceptions import PostgresError
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -41,9 +43,10 @@ from aap_eda.api.event_stream_authentication import (
 )
 from aap_eda.core.enums import Action, EventStreamAuthType, ResourceType
 from aap_eda.core.exceptions import CredentialPluginError, PGNotifyError
-from aap_eda.core.models import EventStream
+from aap_eda.core.models import EdaCredential, EventStream
 from aap_eda.core.utils.credentials import get_resolved_secrets
 from aap_eda.services.pg_notify import PGNotify
+from aap_eda.services.pgmq_producer import PGMQProducer
 
 logger = logging.getLogger(__name__)
 
@@ -273,14 +276,60 @@ class ExternalEventStreamViewSet(viewsets.GenericViewSet):
                 headers=yaml.dump(dict(request.headers)),
             )
         else:
-            try:
-                PGNotify(
-                    settings.PG_NOTIFY_DSN_SERVER,
-                    self.event_stream.channel_name,
-                    payload,
-                )()
-            except PGNotifyError as e:
-                logger.error(e)
+            success = self._send_payload(payload)
+            if not success:
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(status=status.HTTP_200_OK)
+
+    def _send_payload(self, payload) -> bool:
+        return self._send_payload_using_pgmq(payload)
+
+    def _send_payload_using_pgnotify(self, payload) -> bool:
+        try:
+            PGNotify(
+                settings.PG_NOTIFY_DSN_SERVER,
+                self.event_stream.channel_name,
+                payload,
+            )()
+            return True
+        except PGNotifyError as e:
+            logger.error(e)
+        return False
+
+    def _send_payload_using_pgmq(self, payload) -> bool:
+        try:
+            credentials = EdaCredential.objects.get(name="pgmq")
+            inputs = get_resolved_secrets(credentials)
+
+            producer = PGMQProducer(**_map_to_async_pg(inputs))
+            asyncio.run(
+                producer.send_data(self.event_stream.channel_name, payload)
+            )
+            logger.error("Message sent successfully")
+            return True
+        except PostgresError as e:
+            logger.error(str(e))
+        except Exception as e:
+            logger.error(str(e))
+        return False
+
+
+def _map_to_async_pg(inputs) -> dict:
+    mappings = {
+        "postgres_db_host": "host",
+        "postgres_db_port": "port",
+        "postgres_db_password": "password",
+        "postgres_db_name": "database",
+        "postgres_db_user": "user",
+        "postgres_sslmode": "sslmode",
+        "postgres_sslpassword": "sslpassword",
+        "postgres_sslrootcert": "rootcert",
+        "postgres_sslkey": "sslkey",
+        "postgres_sslcert": "sslcert",
+    }
+    result = {}
+    for k, v in inputs.items():
+        if k in mappings:
+            result[mappings[k]] = v
+    return result

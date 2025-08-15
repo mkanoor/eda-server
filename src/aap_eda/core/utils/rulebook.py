@@ -146,7 +146,7 @@ def swap_event_stream_sources(
 def _updated_event_stream_source(
     name: str, source: dict, event_stream_sources: dict
 ) -> dict:
-    updated_source = {"name": name}
+    updated_source = {"name": name, "feedback": True}
     source_type = next(iter(event_stream_sources[name]))
     updated_source[source_type] = event_stream_sources[name][source_type]
     if "filters" in source:
