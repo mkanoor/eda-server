@@ -1,7 +1,7 @@
 x-environment:
   &common-env
   - EDA_MODE=${EDA_MODE:-development}
-  - EDA_DB_USER=eda
+  - EDA_DB_USER=postgres
   - EDA_DB_HOST=postgres
   # Redis environment variables removed - no longer required with dispatcherd migration
   - DJANGO_SETTINGS_MODULE=aap_eda.settings.default
@@ -66,6 +66,7 @@ services:
       - "./postgres_ssl_config/postgresql-cfg:/opt/app-root/src/postgresql-cfg:z"
       - "./postgres_ssl_config/certs:/opt/app-root/src/certs:z"
       - "./postgres_ssl_config/hba:/opt/app-root/src/hba:z"
+      - "./postgres_ssl_config/start-scripts/config_mtls.sh:/usr/share/container-scripts/postgresql/start/zzz_apply_hba_mtls.sh:z"
     healthcheck:
       test: [ 'CMD', 'pg_isready', '-U', 'postgres' ]
       interval: 5s

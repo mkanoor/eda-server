@@ -145,6 +145,35 @@ EXTERNAL_CREDENTIAL_INPUT = {
     "required": ["url", "secret_backend"],
 }
 
+AES_CREDENTIAL_INPUT = {
+    "fields": [
+        {
+            "id": "primary_key",
+            "label": "Primary Key",
+            "type": "string",
+            "format": "aes_key",
+            "secret": True,
+            "help_text": ("Primary Key for AES."),
+        },
+        {
+            "id": "secondary_key",
+            "label": "Secondary Key",
+            "type": "string",
+            "format": "aes_key",
+            "secret": True,
+            "help_text": ("Secondary Key for AES."),
+        },
+        {
+            "id": "aes_salt",
+            "label": "Salt",
+            "type": "string",
+            "format": "aes_salt",
+            "help_text": ("AES salt"),
+            "secret": True,
+            "default": ""
+        },
+    ],
+}
 
 @pytest.mark.parametrize(
     ("inputs", "status_code", "status_message"),
@@ -2055,4 +2084,72 @@ def test_update_mtls_credential_triggers_sync(
         f"{api_url_v1}/eda-credentials/{obj.id}/", data=data
     )
 
+    assert response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.parametrize(
+    ("inputs", "updates", "status_code"),
+    [
+        (
+            {
+                "primary_key": "abcdef",
+            },
+            {
+                "primary_key": "xyz12345",
+                "secondary_key": "abcdef",
+            },
+            status.HTTP_201_CREATED,
+        ),
+        (
+            {
+                "primary_key": "abcdef",
+                "secondary_key": "xyz123"
+            },
+            {
+                "primary_key": "edm123",
+                "secondary_key": "abcdef"
+            },
+            status.HTTP_201_CREATED,
+        )
+    ],
+)
+@pytest.mark.django_db
+def test_create_aes_credential_type(
+    superuser_client: APIClient,
+    default_organization: models.Organization,
+    inputs,
+    updates,
+    status_code,
+):
+    credential_type_data_in = {
+        "name": "my_aes",
+        "inputs": AES_CREDENTIAL_INPUT,
+        "injectors": {},
+    }
+
+    response = superuser_client.post(
+        f"{api_url_v1}/credential-types/", data=credential_type_data_in
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.data["name"] == "my_aes"
+    credential_data_in = {
+        "name": "eda-credential",
+        "inputs": inputs,
+        "credential_type_id": response.data["id"],
+        "organization_id": default_organization.id,
+    }
+    response = superuser_client.post(
+        f"{api_url_v1}/eda-credentials/", data=credential_data_in
+    )
+    obj = response.json()
+    assert response.status_code == status_code
+    credential_data_in = {
+        "name": "eda-credential",
+        "inputs": updates,
+        "credential_type_id": response.data["id"],
+        "organization_id": default_organization.id,
+    }
+    response = superuser_client.patch(
+        f"{api_url_v1}/eda-credentials/{obj['id']}/", data=credential_data_in
+    )
     assert response.status_code == status.HTTP_200_OK

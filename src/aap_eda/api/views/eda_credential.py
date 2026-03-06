@@ -181,7 +181,6 @@ class EdaCredentialViewSet(
     def partial_update(self, request, pk):
         eda_credential = self.get_object()
         data = request.data
-
         data["inputs"] = inputs_to_store_dict(
             data.get("inputs", {}), eda_credential.inputs
         )

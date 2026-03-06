@@ -148,11 +148,11 @@ tasks:
           CLI_ARGS: up --detach
 
   docker:up:minimal:
-    desc: "Start minimal set of services (PostgreSQL, Redis)."
+    desc: "Start minimal set of services (PostgreSQL)."
     cmds:
       - task: docker
         vars:
-          CLI_ARGS: up --detach postgres redis
+          CLI_ARGS: up --detach postgres
 
   docker:up:postgres:
     desc: "Start PostgreSQL service."

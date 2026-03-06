@@ -190,6 +190,7 @@ class EdaCredentialUpdateSerializer(
 
     def validate(self, data):
         credential_type = self.instance.credential_type
+        old_inputs = inputs_from_store(self.instance.inputs.get_secret_value())
 
         inputs = data.get("inputs", {})
         # allow empty inputs during updating
@@ -200,6 +201,8 @@ class EdaCredentialUpdateSerializer(
             credential_type,
             credential_type.inputs,
             inputs,
+            "fields",
+            old_inputs,
         )
         if bool(errors):
             raise serializers.ValidationError(errors)
