@@ -19,7 +19,6 @@ import urllib.parse
 from typing import Any
 
 import yaml
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
@@ -41,10 +40,10 @@ from aap_eda.api.event_stream_authentication import (
     TokenAuthentication,
 )
 from aap_eda.core.enums import Action, EventStreamAuthType, ResourceType
-from aap_eda.core.exceptions import CredentialPluginError, PGNotifyError
+from aap_eda.core.exceptions import CredentialPluginError
 from aap_eda.core.models import EventStream
 from aap_eda.core.utils.credentials import get_resolved_secrets
-from aap_eda.services.pg_notify import PGNotify
+from aap_eda.pubsub import ProducerException, get_producer
 
 logger = logging.getLogger(__name__)
 UNSAFE_HEADER_KEYS = {"X-Trusted-Proxy", "X-Forwarded-For", "X-Real-IP"}
@@ -293,12 +292,8 @@ class ExternalEventStreamViewSet(viewsets.GenericViewSet):
             )
         else:
             try:
-                PGNotify(
-                    settings.PG_NOTIFY_DSN_SERVER,
-                    self.event_stream.channel_name,
-                    payload,
-                )()
-            except PGNotifyError as e:
+                get_producer(self.event_stream).publish(payload, None)
+            except ProducerException as e:
                 logger.error(e)
                 return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

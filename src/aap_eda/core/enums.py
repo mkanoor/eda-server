@@ -114,6 +114,14 @@ class DefaultCredentialType(DjangoStrEnum):
     CYBERARK_CONJUR = "CyberArk Conjur Secrets Manager Lookup"
     MSFT_AZURE_VAULT = "Microsoft Azure Key Vault"
     GITHUB_APP = "GitHub App Installation Access Token Lookup"
+    KAFKA_PUBSUB = "Kafka Producer Consumer for Event Streams"
+    AZURE_EVENT_HUB_PUBSUB = (
+        "Azure Event Hub Producer Consumer for Event Streams"
+    )
+    AZURE_SERVICE_BUS_PUBSUB = (
+        "Azure Service Bus Producer Consumer for Event Streams"
+    )
+    PGMQ_PUBSUB = "PGMQ Producer Consumer for Event Streams"
 
 
 # TODO: rename to "RulebookProcessStatus" or "ParentProcessStatus"

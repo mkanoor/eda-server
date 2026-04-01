@@ -60,6 +60,10 @@ from aap_eda.core.utils.rulebook import (
     swap_event_stream_sources,
 )
 from aap_eda.core.utils.strings import substitute_variables
+from aap_eda.pubsub.factory import (
+    get_default_producer_credential,
+    get_producer,
+)
 
 logger = logging.getLogger(__name__)
 REQUIRED_KEYS = [
@@ -68,16 +72,6 @@ REQUIRED_KEYS = [
     "source_name",
     "rulebook_hash",
 ]
-
-PG_NOTIFY_DSN = (
-    "host={{postgres_db_host}} port={{postgres_db_port}} "
-    "dbname={{postgres_db_name}} user={{postgres_db_user}} "
-    "password={{postgres_db_password}} sslmode={{postgres_sslmode}} "
-    "sslcert={{eda.filename.postgres_sslcert|default(None)}} "
-    "sslkey={{eda.filename.postgres_sslkey|default(None)}} "
-    "sslpassword={{postgres_sslpassword|default(None)}} "
-    "sslrootcert={{eda.filename.postgres_sslrootcert|default(None)}}"
-)
 
 
 @dataclass
@@ -93,12 +87,13 @@ def _update_event_stream_source(validated_data: dict) -> str:
         for source_map in source_mappings:
             event_stream_id = source_map.get("event_stream_id")
             obj = models.EventStream.objects.get(id=event_stream_id)
+            producer_obj = get_producer(obj, True)
+            consumer_args = producer_obj.get_consumer_manifest(
+                validated_data["name"]
+            )
 
             sources_info[obj.name] = {
-                "ansible.eda.pg_listener": {
-                    "dsn": PG_NOTIFY_DSN,
-                    "channels": [obj.channel_name],
-                },
+                consumer_args["source_type"]: consumer_args["args"]
             }
 
         return swap_event_stream_sources(
@@ -221,16 +216,61 @@ def _get_user_extra_vars(
     return yaml.dump(extra_vars)
 
 
+def _get_credentials_from_source_mappings(source_mappings: str) -> set:
+    """Extract credentials from source mappings.
+
+    Args:
+        source_mappings: YAML string containing source mappings
+
+    Returns:
+        Set of credential IDs found in the event streams
+    """
+    credentials_from_mappings = set()
+
+    if not source_mappings:
+        return credentials_from_mappings
+
+    try:
+        default_credential = get_default_producer_credential()
+        source_mappings_list = yaml.safe_load(source_mappings)
+        if source_mappings_list:
+            for source_map in source_mappings_list:
+                event_stream_id = source_map.get("event_stream_id")
+                if event_stream_id:
+                    event_stream = models.EventStream.objects.get(
+                        id=event_stream_id
+                    )
+                    credential = (
+                        event_stream.consumer_credential
+                        or event_stream.producer_credential
+                        or default_credential
+                    )
+                    if credential:
+                        credentials_from_mappings.add(credential.id)
+    except Exception as e:
+        logger.error(
+            "Failed to get credentials from source mappings: %s", str(e)
+        )
+
+    return credentials_from_mappings
+
+
 def _update_event_streams_and_credential(validated_data: dict):
     validated_data["rulebook_rulesets"] = _update_event_stream_source(
         validated_data
     )
     eda_credentials = validated_data.get("eda_credentials", [])
-    postgres_cred = models.EdaCredential.objects.filter(
-        name=settings.DEFAULT_SYSTEM_PG_NOTIFY_CREDENTIAL_NAME
-    ).first()
-    if postgres_cred.id not in eda_credentials:
-        eda_credentials.append(postgres_cred.id)
+
+    # Get credentials from source mappings
+    credentials_from_mappings = _get_credentials_from_source_mappings(
+        validated_data.get("source_mappings")
+    )
+
+    if credentials_from_mappings:
+        for cred_id in credentials_from_mappings:
+            if cred_id not in eda_credentials:
+                eda_credentials.append(cred_id)
+
     validated_data["eda_credentials"] = eda_credentials
 
 

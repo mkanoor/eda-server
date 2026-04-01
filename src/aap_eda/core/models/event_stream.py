@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import logging
 import uuid
 
 from django.db import models
@@ -19,6 +20,8 @@ from django.db import models
 from aap_eda.utils import sanitize_postgres_identifier
 
 from .base import BaseOrgModel, PrimordialModel, UniqueNamedModel
+
+logger = logging.getLogger(__name__)
 
 __all__ = "EventStream"
 
@@ -92,9 +95,57 @@ class EventStream(BaseOrgModel, UniqueNamedModel, PrimordialModel):
         null=True, help_text="The date/time when the last event was received"
     )
 
+    pubsub_kind = models.TextField(
+        blank=True,
+        default="",
+        help_text="The kind of pubsub that is used with this event stream",
+    )
+
+    producer_credential = models.ForeignKey(
+        "EdaCredential",
+        blank=True,
+        null=True,
+        default=None,
+        on_delete=models.SET_NULL,
+        related_name="producer_event_streams",
+    )
+    consumer_credential = models.ForeignKey(
+        "EdaCredential",
+        blank=True,
+        null=True,
+        default=None,
+        on_delete=models.SET_NULL,
+        related_name="consumer_event_streams",
+    )
+
     def _get_channel_name(self) -> str:
         """Generate the channel name based on the UUID and prefix."""
         channel_name = f"{EDA_EVENT_STREAM_CHANNEL_PREFIX}{str(self.uuid)}"
         return sanitize_postgres_identifier(channel_name)
 
     channel_name = property(_get_channel_name)
+
+    def delete(self, *args, **kwargs):
+        """Override delete to cleanup PGMQ queues before deletion."""
+        # Cleanup pubsub queues/topics if using PGMQ
+        if self.producer_credential:
+            try:
+                # Import here to avoid circular imports
+                from aap_eda.pubsub import get_producer
+
+                producer = get_producer(self)
+                producer.delete_queues()
+                logger.info(
+                    "Cleaned up queues for EventStream id=%s, uuid=%s",
+                    self.id,
+                    self.uuid,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to cleanup queues for EventStream id=%s: %s",
+                    self.id,
+                    e,
+                )
+
+        # Call the parent delete method
+        super().delete(*args, **kwargs)

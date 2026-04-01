@@ -86,6 +86,13 @@ awx-plugins-core = { version = "^0.0.1a10", extras = [
 pyasn1 = ">=0.6.3"
 # limit setuptools to avoid the pkg_resources removal
 setuptools = "<82"
+kafka-python = "^2.3.0"
+azure-eventhub = "^5.15.1"
+azure-mgmt-eventhub = "^11.2.0"
+azure-servicebus = "^7.12.0"
+azure-mgmt-servicebus = "^8.2.0"
+asyncpg = "^0.30.0"
+tembo-pgmq-python = "^0.10.0"
 
 
 [tool.poetry.group.test.dependencies]

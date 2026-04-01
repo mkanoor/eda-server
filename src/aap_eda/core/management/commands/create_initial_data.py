@@ -966,6 +966,124 @@ POSTGRES_CREDENTIAL_INPUTS = {
     ]
 }
 
+PGMQ_PUBSUB_INPUTS = {
+    "fields": [
+        {
+            "id": "postgres_db_host",
+            "label": LABEL_POSTGRES_DB_HOST,
+            "type": "string",
+            "help_text": "Postgres DB Server",
+        },
+        {
+            "id": "postgres_db_port",
+            "label": LABEL_POSTGRES_DB_PORT,
+            "type": "string",
+            "help_text": LABEL_POSTGRES_DB_PORT,
+            "default": "5432",
+        },
+        {
+            "id": "postgres_db_name",
+            "label": "Postgres DB Name",
+            "type": "string",
+            "help_text": "Postgres Database name",
+        },
+        {
+            "id": "postgres_db_user",
+            "label": "Postgres DB User",
+            "type": "string",
+            "help_text": "Postgres Database user",
+        },
+        {
+            "id": "postgres_db_password",
+            "label": "Postgres DB Password",
+            "type": "string",
+            "help_text": "Postgres Database password",
+            "secret": True,
+        },
+        {
+            "id": "postgres_sslmode",
+            "label": LABEL_POSTGRES_SSL_MODE,
+            "type": "string",
+            "help_text": LABEL_POSTGRES_SSL_MODE,
+            "choices": [
+                "disable",
+                "allow",
+                "prefer",
+                "require",
+                "verify-ca",
+                "verify-full",
+            ],
+            "default": "prefer",
+        },
+        {
+            "id": "postgres_sslcert",
+            "label": LABEL_POSTGRES_SSL_CERTIFICATE,
+            "type": "string",
+            "help_text": LABEL_POSTGRES_SSL_CERTIFICATE,
+            "multiline": True,
+            "default": "",
+        },
+        {
+            "id": "postgres_sslkey",
+            "label": LABEL_POSTGRES_SSL_KEY,
+            "type": "string",
+            "help_text": LABEL_POSTGRES_SSL_KEY,
+            "multiline": True,
+            "secret": True,
+            "default": "",
+        },
+        {
+            "id": "postgres_sslpassword",
+            "label": LABEL_POSTGRES_SSL_PASSWORD,
+            "type": "string",
+            "help_text": "Postgres SSL Password for key",
+            "secret": True,
+            "default": "",
+        },
+        {
+            "id": "postgres_sslrootcert",
+            "label": LABEL_POSTGRES_SSL_ROOT_CERTIFICATE,
+            "type": "string",
+            "help_text": LABEL_POSTGRES_SSL_ROOT_CERTIFICATE,
+            "multiline": True,
+            "default": "",
+        },
+        {
+            "id": "pgmq_visibility_timeout",
+            "label": "Visibility Timeout",
+            "type": "string",
+            "help_text": "The visibility timeout for messages",
+            "default": "30",
+        },
+        {
+            "id": "pgmq_feedback",
+            "label": "Feedback",
+            "type": "boolean",
+            "help_text": "Wait for feedback from Rule Engine",
+            "default": True,
+        },
+    ]
+}
+
+PGMQ_PUBSUB_INJECTORS = {
+    "extra_vars": {
+        "pgmq_db_host": "{{ postgres_db_host }}",
+        "pgmq_db_port": "{{ postgres_db_port }}",
+        "pgmq_db_name": "{{ postgres_db_name }}",
+        "pgmq_db_user": "{{ postgres_db_user }}",
+        "pgmq_db_password": "{{ postgres_db_password }}",
+        "pgmq_sslpassword": "{{ postgres_sslpassword | default(None) }}",
+        "pgmq_sslmode": "{{ postgres_sslmode }}",
+        "pgmq_feedback": "{{ pgmq_feedback }}",
+        "pgmq_visibility_timeout": "{{ pgmq_visibility_timeout }}",
+    },
+    "file": {
+        "template.pgmq_sslcert": "{{ postgres_sslcert }}",
+        "template.pgmq_sslrootcert": "{{ postgres_sslrootcert }}",
+        "template.pgmq_sslkey": "{{ postgres_sslkey }}",
+    },
+}
+
 ANALYTICS_CREDENTIAL_OAUTH_INPUTS = {
     "fields": [
         {
@@ -2031,6 +2149,470 @@ EDA_RULE_ENGINE_CREDENTIAL_INJECTORS = {
     },
 }
 
+KAFKA_PUBSUB_INPUTS = {
+    "fields": [
+        {
+            "id": "bootstrap_servers",
+            "type": "string",
+            "label": "Bootstrap Servers",
+            "help_text": (
+                "Server pairs separated by ,(comma), "
+                "e.g. server1:port,server2:port",
+            ),
+        },
+        {
+            "id": "host",
+            "type": "string",
+            "label": "Host",
+            "default": "localhost",
+        },
+        {
+            "id": "port",
+            "type": "string",
+            "label": "Port",
+            "default": "9093",
+            "help_text": "The Kafka Port Number",
+        },
+        {
+            "id": "cafile",
+            "type": "string",
+            "label": "CA File",
+            "help_text": "The Certificate Authority Certificate file",
+            "multiline": True,
+        },
+        {
+            "id": "certfile",
+            "type": "string",
+            "label": "Certificate File",
+            "help_text": "The Certificate file for the client",
+            "multiline": True,
+        },
+        {
+            "id": "keyfile",
+            "type": "string",
+            "label": "Key File",
+            "help_text": "The Key file for the client",
+            "multiline": True,
+        },
+        {
+            "id": "password",
+            "type": "string",
+            "label": "Key Password",
+            "secret": True,
+            "help_text": "The password for the Key file",
+        },
+        {
+            "id": "check_hostname",
+            "type": "boolean",
+            "label": "Check Hostname",
+            "default": True,
+            "help_text": "Validate the hostname in the servers certificate",
+        },
+        {
+            "id": "verify_mode",
+            "type": "string",
+            "label": "Verify Mode",
+            "hidden": True,
+            "choices": ["CERT_NONE", "CERT_OPTIONAL", "CERT_REQUIRED"],
+            "default": "CERT_NONE",
+            "help_text": "Client certificate choices",
+        },
+        {
+            "id": "topic",
+            "type": "string",
+            "label": "Topic",
+            "default": "demo",
+            "help_text": "The Kafka Topic to listen on",
+        },
+        {
+            "id": "dynamic_topic",
+            "type": "boolean",
+            "label": "Dynamic Topic",
+            "help_text": "Create a separate topic for each event stream",
+            "default": True,
+        },
+        {
+            "id": "group_id",
+            "type": "string",
+            "label": "Group ID",
+            "help_text": "Consumer group ID",
+        },
+        {
+            "id": "dynamic_groups",
+            "type": "boolean",
+            "label": "Dynamic Groups",
+            "help_text": "Create Dynamic Groups for each Activation",
+            "default": False,
+        },
+        {
+            "id": "offset",
+            "type": "string",
+            "label": "Reading offset",
+            "choices": ["earliest", "latest"],
+            "default": "latest",
+            "help_text": "Please select a offset from the list",
+        },
+        {
+            "id": "security_protocol",
+            "type": "string",
+            "label": "Security Protocol",
+            "choices": ["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"],
+            "default": "SSL",
+            "help_text": "Please select a security protocol from the list",
+        },
+        {
+            "id": "sasl_mechanism",
+            "type": "string",
+            "label": "SASL Mechanism",
+            "choices": [
+                "PLAIN",
+                "GSSAPI",
+                "SCRAM-SHA-256",
+                "SCRAM-SHA-512",
+                "OAUTHBEARER",
+            ],
+            "default": "PLAIN",
+            "help_text": "Please select a SASL mechanism from the list",
+        },
+        {
+            "id": "sasl_plain_username",
+            "type": "string",
+            "label": "SASL Username",
+            "help_text": "The SASL username",
+        },
+        {
+            "id": "sasl_plain_password",
+            "type": "string",
+            "label": "SASL Password",
+            "secret": True,
+            "help_text": "The SASL password",
+        },
+        {
+            "id": "feedback",
+            "type": "boolean",
+            "label": "Feedback",
+            "default": False,
+            "help_text": "Wait for feedback from Rule Engine",
+        },
+        {
+            "id": "feedback_timeout",
+            "type": "string",
+            "label": "Feedback Timeout",
+            "default": "120",
+            "help_text": (
+                "Time interval to wait in seconds for Rule "
+                "Engine to respond"
+            ),
+        },
+    ],
+    "required": ["topic"],
+}
+
+KAFKA_PUBSUB_INJECTORS = {
+    "file": {
+        "template.kafka_pubsub_cafile": "{{ cafile }}",
+        "template.kafka_pubsub_keyfile": "{{ keyfile }}",
+        "template.kafka_pubsub_certfile": "{{ certfile }}",
+    },
+    "extra_vars": {
+        "kafka_pubsub_bootstrap_servers": "{{ bootstrap_servers }}",
+        "kafka_pubsub_host": "{{ host }}",
+        "kafka_pubsub_port": "{{ port }}",
+        "kafka_pubsub_topic": "{{ topic }}",
+        "kafka_pubsub_offset": "{{ offset }}",
+        "kafka_pubsub_group_id": "{{ group_id }}",
+        "kafka_pubsub_verify_mode": "{{ verify_mode }}",
+        "kafka_pubsub_password": "{{ password }}",
+        "kafka_pubsub_check_hostname": "{{ check_hostname }}",
+        "kafka_pubsub_sasl_mechanism": "{{ sasl_mechanism }}",
+        "kafka_pubsub_security_protocol": "{{ security_protocol }}",
+        "kafka_pubsub_sasl_plain_password": "{{ sasl_plain_password }}",
+        "kafka_pubsub_sasl_plain_username": "{{ sasl_plain_username }}",
+        "kafka_pubsub_feedback": "{{ feedback }}",
+        "kafka_pubsub_feedback_timeout": "{{ feedback_timeout }}",
+    },
+}
+
+AZURE_EVENT_HUB_PUBSUB_INPUTS = {
+    "fields": [
+        {
+            "id": "tenant_id",
+            "type": "string",
+            "label": "Tenant ID",
+            "help_text": "The Azure Tenant ID",
+        },
+        {
+            "id": "client_id",
+            "type": "string",
+            "label": "Client ID",
+            "help_text": "The Azure Client ID",
+        },
+        {
+            "id": "client_secret",
+            "type": "string",
+            "label": "Client Secret",
+            "help_text": "The Azure Client Secret",
+            "secret": True,
+        },
+        {
+            "id": "namespace",
+            "type": "string",
+            "label": "Azure Namespace",
+            "help_text": "The Azure Namespace",
+        },
+        {
+            "id": "event_hub_name",
+            "type": "string",
+            "label": "Azure Event Hub Name",
+            "help_text": "The Azure Event Hub Name",
+        },
+        {
+            "id": "dynamic_topic",
+            "type": "boolean",
+            "label": "Dynamic Event Hub",
+            "help_text": "Create a separate event hub for each event stream",
+            "default": True,
+        },
+        {
+            "id": "consumer_group",
+            "type": "string",
+            "label": "Azure Consumer Group",
+            "help_text": "The Azure Consumer Group",
+            "default": "$Default",
+        },
+        {
+            "id": "dynamic_groups",
+            "type": "boolean",
+            "label": "Dynamic Groups",
+            "help_text": "Create Dynamic Groups for each Activation",
+            "default": False,
+        },
+        {
+            "id": "feedback",
+            "type": "boolean",
+            "label": "Feedback",
+            "default": False,
+            "help_text": "Wait for feedback from Rule Engine",
+        },
+        {
+            "id": "feedback_timeout",
+            "type": "string",
+            "label": "Feedback Timeout",
+            "default": "120",
+            "help_text": (
+                "Time interval to wait in seconds for Rule "
+                "Engine to respond"
+            ),
+        },
+        {
+            "id": "starting_position",
+            "type": "string",
+            "label": "Starting Position",
+            "default": "@latest",
+            "help_text": (
+                "The starting position when reading from the event hub. "
+                "Valid values: @latest, @earliest, or a specific offset number. "
+                "Only used when no checkpoint exists for this consumer group."
+            ),
+        },
+        {
+            "id": "subscription_id",
+            "type": "string",
+            "label": "Subscription ID",
+            "help_text": (
+                "To support dynamic groups and topics we would need "
+                "the subscription id to be provided."
+            ),
+        },
+        {
+            "id": "resource_group",
+            "type": "string",
+            "label": "Resource Group",
+            "help_text": (
+                "To support dynamic groups and topics we would need "
+                "the resource group to be provided."
+            ),
+        },
+        {
+            "id": "storage_account_name",
+            "type": "string",
+            "label": "Storage Account Name",
+            "help_text": (
+                "Azure Storage Account name for persisting consumer checkpoints. "
+                "The same service principal will be used to authenticate to both "
+                "Event Hub and Blob Storage. If not provided, checkpoints will "
+                "only be stored in-memory and consumer position will be lost on restart. "
+                "Example: 'mystorageaccount' (not the full URL)"
+            ),
+        },
+        {
+            "id": "checkpoint_container_name",
+            "type": "string",
+            "label": "Checkpoint Container Name",
+            "help_text": (
+                "Name of the blob container to store checkpoints. "
+                "Required if Storage Account Name is provided. "
+                "Example: 'eventhub-checkpoints'"
+            ),
+        },
+        {
+            "id": "max_wait_time",
+            "type": "string",
+            "label": "Max Wait Time",
+            "default": "60",
+            "help_text": (
+                "Maximum time in seconds to wait for events before checking "
+                "for partition rebalancing. Lower values (10-30) provide faster "
+                "failover detection but more Azure API calls. Higher values "
+                "(60-120) provide slower failover but fewer API calls and lower costs. "
+                "Only relevant when using load balancing (multiple activations with "
+                "same consumer group)."
+            ),
+        },
+    ],
+    "required": [
+        "tenant_id",
+        "client_id",
+        "client_secret",
+        "namespace",
+        "event_hub_name",
+        "consumer_group",
+    ],
+}
+
+AZURE_EVENT_HUB_PUBSUB_INJECTORS = {
+    "extra_vars": {
+        "event_hub_pubsub_tenant_id": "{{ tenant_id }}",
+        "event_hub_pubsub_client_id": "{{ client_id }}",
+        "event_hub_pubsub_client_secret": "{{ client_secret }}",
+        "event_hub_pubsub_namespace": "{{ namespace }}",
+        "event_hub_pubsub_event_hub_name": "{{ event_hub_name }}",
+        "event_hub_pubsub_consumer_group": "{{ consumer_group }}",
+        "event_hub_pubsub_feedback": "{{ feedback }}",
+        "event_hub_pubsub_feedback_timeout": "{{ feedback_timeout }}",
+        "event_hub_pubsub_starting_position": "{{ starting_position }}",
+        "event_hub_pubsub_storage_account_name": "{{ storage_account_name }}",
+        "event_hub_pubsub_checkpoint_container_name": "{{ checkpoint_container_name }}",
+        "event_hub_pubsub_max_wait_time": "{{ max_wait_time }}",
+    }
+}
+
+AZURE_SERVICE_BUS_PUBSUB_INPUTS = {
+    "fields": [
+        {
+            "id": "tenant_id",
+            "type": "string",
+            "label": "Tenant ID",
+            "help_text": "The Azure Tenant ID",
+        },
+        {
+            "id": "client_id",
+            "type": "string",
+            "label": "Client ID",
+            "help_text": "The Azure Client ID",
+        },
+        {
+            "id": "client_secret",
+            "type": "string",
+            "label": "Client Secret",
+            "help_text": "The Azure Client Secret",
+            "secret": True,
+        },
+        {
+            "id": "namespace",
+            "type": "string",
+            "label": "Azure Namespace",
+            "help_text": (
+                "The Azure Service Bus namespace "
+                "(e.g., 'myservicebus.servicebus.windows.net')"
+            ),
+        },
+        {
+            "id": "topic_name",
+            "type": "string",
+            "label": "Topic Name",
+            "help_text": "The Azure Service Bus Topic Name",
+        },
+        {
+            "id": "dynamic_topic",
+            "type": "boolean",
+            "label": "Dynamic Topic",
+            "help_text": "Create a separate topic for each event stream",
+            "default": True,
+        },
+        {
+            "id": "subscription_name",
+            "type": "string",
+            "label": "Subscription Name",
+            "help_text": "The Azure Service Bus Subscription Name",
+        },
+        {
+            "id": "dynamic_subscriptions",
+            "type": "boolean",
+            "label": "Dynamic Subscriptions",
+            "help_text": "Create Dynamic Subscriptions for each Activation",
+            "default": False,
+        },
+        {
+            "id": "feedback",
+            "type": "boolean",
+            "label": "Feedback",
+            "default": False,
+            "help_text": "Wait for feedback from Rule Engine",
+        },
+        {
+            "id": "feedback_timeout",
+            "type": "string",
+            "label": "Feedback Timeout",
+            "default": "120",
+            "help_text": (
+                "Time interval to wait in seconds for Rule "
+                "Engine to respond"
+            ),
+        },
+        {
+            "id": "subscription_id",
+            "type": "string",
+            "label": "Subscription ID",
+            "help_text": (
+                "Azure subscription ID. Required to support dynamic "
+                "subscriptions and topics."
+            ),
+        },
+        {
+            "id": "resource_group",
+            "type": "string",
+            "label": "Resource Group",
+            "help_text": (
+                "Azure resource group containing the Service Bus namespace. "
+                "Required to support dynamic subscriptions and topics."
+            ),
+        },
+    ],
+    "required": [
+        "tenant_id",
+        "client_id",
+        "client_secret",
+        "namespace",
+        "topic_name",
+        "subscription_name",
+    ],
+}
+
+AZURE_SERVICE_BUS_PUBSUB_INJECTORS = {
+    "extra_vars": {
+        "azure_service_bus_pubsub_tenant_id": "{{ tenant_id }}",
+        "azure_service_bus_pubsub_client_id": "{{ client_id }}",
+        "azure_service_bus_pubsub_client_secret": "{{ client_secret }}",
+        "azure_service_bus_pubsub_namespace": "{{ namespace }}",
+        "azure_service_bus_pubsub_topic_name": "{{ topic_name }}",
+        "azure_service_bus_pubsub_subscription_name": "{{ subscription_name }}",
+        "azure_service_bus_pubsub_feedback": "{{ feedback }}",
+        "azure_service_bus_pubsub_feedback_timeout": "{{ feedback_timeout }}",
+    }
+}
+
+
 CREDENTIAL_TYPES = [
     {
         "name": enums.DefaultCredentialType.SOURCE_CONTROL,
@@ -2340,6 +2922,53 @@ CREDENTIAL_TYPES = [
             "Credential for EDA Rule Engine persistence. "
             "This uses the Postgres DB Credential along "
             "with other settings for the Rule Engine."
+        ),
+    },
+    {
+        "name": enums.DefaultCredentialType.KAFKA_PUBSUB,
+        "kind": "kafka",
+        "namespace": "pubsub",
+        "inputs": KAFKA_PUBSUB_INPUTS,
+        "injectors": KAFKA_PUBSUB_INJECTORS,
+        "managed": True,
+        "description": (
+            "Credential for Kafka used to save Event Streams in Kafka."
+        ),
+    },
+    {
+        "name": enums.DefaultCredentialType.AZURE_EVENT_HUB_PUBSUB,
+        "kind": "azure_event_hub",
+        "namespace": "pubsub",
+        "inputs": AZURE_EVENT_HUB_PUBSUB_INPUTS,
+        "injectors": AZURE_EVENT_HUB_PUBSUB_INJECTORS,
+        "managed": True,
+        "description": (
+            "Credential for Azure Event Hub used to save Event Streams in "
+            "Azure Event Hub."
+        ),
+    },
+    {
+        "name": enums.DefaultCredentialType.AZURE_SERVICE_BUS_PUBSUB,
+        "kind": "azure_service_bus",
+        "namespace": "pubsub",
+        "inputs": AZURE_SERVICE_BUS_PUBSUB_INPUTS,
+        "injectors": AZURE_SERVICE_BUS_PUBSUB_INJECTORS,
+        "managed": True,
+        "description": (
+            "Credential for Azure Service Bus used to save Event Streams in "
+            "Azure Service Bus topics."
+        ),
+    },
+    {
+        "name": enums.DefaultCredentialType.PGMQ_PUBSUB,
+        "kind": "pgmq",
+        "namespace": "pubsub",
+        "inputs": PGMQ_PUBSUB_INPUTS,
+        "injectors": PGMQ_PUBSUB_INJECTORS,
+        "managed": True,
+        "description": (
+            "Credential for Postgres Message Queue used to save "
+            "Event Streams in Postgres."
         ),
     },
 ]

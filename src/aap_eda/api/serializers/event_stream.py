@@ -43,6 +43,16 @@ class EventStreamInSerializer(serializers.ModelSerializer):
         error_messages={"null": "EdaCredential is needed"},
     )
     uuid = serializers.UUIDField(required=False, allow_null=True)
+    consumer_credential_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        validators=[],
+    )
+    producer_credential_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        validators=[],
+    )
 
     def validate_uuid(self, value):
         if value is None:
@@ -90,6 +100,9 @@ class EventStreamInSerializer(serializers.ModelSerializer):
             "test_mode",
             "additional_data_headers",
             "eda_credential_id",
+            "pubsub_kind",
+            "producer_credential_id",
+            "consumer_credential_id",
             "organization_id",
             "uuid",
         ]
@@ -100,6 +113,12 @@ class EventStreamOutSerializer(serializers.ModelSerializer):
     organization = serializers.SerializerMethodField()
     eda_credential = EdaCredentialRefSerializer(
         required=True, allow_null=False
+    )
+    consumer_credential = EdaCredentialRefSerializer(
+        required=False, allow_null=True
+    )
+    producer_credential = EdaCredentialRefSerializer(
+        required=False, allow_null=True
     )
     url = serializers.SerializerMethodField()
     created_by = BasicUserFieldSerializer()
@@ -130,6 +149,9 @@ class EventStreamOutSerializer(serializers.ModelSerializer):
             "uuid",
             "created_by",
             "modified_by",
+            "consumer_credential",
+            "producer_credential",
+            "pubsub_kind",
             *read_only_fields,
         ]
 
