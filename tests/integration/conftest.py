@@ -621,6 +621,26 @@ def activation_payload_blank_text(activation_payload: dict) -> dict:
 
 
 @pytest.fixture
+def basic_activation(
+    default_user: models.User,
+    default_decision_environment: models.DecisionEnvironment,
+    default_rulebook: models.Rulebook,
+    default_organization: models.Organization,
+) -> models.Activation:
+    """Return the minimal activation."""
+    return models.Activation.objects.create(
+        name="test-activation",
+        user=default_user,
+        decision_environment=default_decision_environment,
+        rulebook=default_rulebook,
+        # rulebook_rulesets is populated by the serializer
+        rulebook_rulesets=default_rulebook.rulesets,
+        log_level=enums.RulebookProcessLogLevel.INFO,
+        organization=default_organization,
+    )
+
+
+@pytest.fixture
 def default_activation(
     default_decision_environment: models.DecisionEnvironment,
     default_project: models.Project,

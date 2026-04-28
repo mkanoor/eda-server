@@ -418,9 +418,7 @@ class ActivationListSerializer(serializers.ModelSerializer):
         ]
 
     def to_representation(self, activation):
-        rules_count, rules_fired_count = get_rules_count(
-            activation.ruleset_stats
-        )
+        rules_count, rules_fired_count = get_rules_count(activation)
         eda_credentials = [
             EdaCredentialSerializer(credential).data
             for credential in activation.eda_credentials.filter(managed=False)
@@ -1022,9 +1020,7 @@ class ActivationReadSerializer(serializers.ModelSerializer):
             activation_id=activation.id,
             parent_type=ProcessParentType.ACTIVATION,
         )
-        rules_count, rules_fired_count = get_rules_count(
-            activation.ruleset_stats
-        )
+        rules_count, rules_fired_count = get_rules_count(activation)
         # restart_count can be zero even if there are more than one instance
         # because it is incremented only when the activation
         # is restarted automatically
@@ -1058,11 +1054,25 @@ class ActivationReadSerializer(serializers.ModelSerializer):
             EventStreamOutSerializer(event_stream).data
             for event_stream in activation.event_streams.all()
         ]
+
+        # Get ruleset stats from heartbeat table for latest instance
+        stats_dict = {}
+        if activation.latest_instance_id:
+            try:
+                heartbeat = models.RulebookProcessHeartbeat.objects.get(
+                    process_id=activation.latest_instance_id
+                )
+                stats_dict = heartbeat.stats
+            except models.RulebookProcessHeartbeat.DoesNotExist:
+                # Fallback to activation.ruleset_stats if heartbeat doesn't exist
+                stats_dict = activation.ruleset_stats
+        else:
+            # No latest instance, use activation's ruleset_stats
+            stats_dict = activation.ruleset_stats
+
         ruleset_stats = (
-            YAMLSerializerField(sort_keys=False).to_representation(
-                activation.ruleset_stats
-            )
-            if activation.ruleset_stats
+            YAMLSerializerField(sort_keys=False).to_representation(stats_dict)
+            if stats_dict
             else ""
         )
 
@@ -1210,9 +1220,29 @@ class PostActivationSerializer(serializers.ModelSerializer):
         ]
 
 
-def get_rules_count(ruleset_stats: dict) -> tuple[int, int]:
+def get_rules_count(activation) -> tuple[int, int]:
+    """
+    Get rules count and rules fired count for an activation.
+
+    Reads from the heartbeat table for the latest instance to get current stats.
+    Falls back to activation.ruleset_stats for backward compatibility.
+    """
     rules_count = 0
     rules_fired_count = 0
+
+    # Try to get stats from the latest instance's heartbeat record
+    if activation.latest_instance_id:
+        try:
+            heartbeat = models.RulebookProcessHeartbeat.objects.get(
+                process_id=activation.latest_instance_id
+            )
+            ruleset_stats = heartbeat.stats
+        except models.RulebookProcessHeartbeat.DoesNotExist:
+            # Fallback to activation.ruleset_stats if heartbeat doesn't exist
+            ruleset_stats = activation.ruleset_stats
+    else:
+        # No latest instance, use activation's ruleset_stats
+        ruleset_stats = activation.ruleset_stats
 
     # TODO: add schema for validating ruleset_stats
     for ruleset_stat in ruleset_stats.values():

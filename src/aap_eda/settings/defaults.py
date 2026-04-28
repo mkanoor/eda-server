@@ -55,6 +55,14 @@ Database settings:
 * EDA_PGSSLKEY - Path to SSL key file (default: "")
 * EDA_PGSSLROOTCERT - Path to SSL root certificate file (default: "")
 
+Database disk space monitoring:
+
+* DB_DISK_SPACE_CHECK_ENABLED - Enable proactive disk space monitoring (default: True)
+* DB_DISK_SPACE_THRESHOLD_PERCENT - Stop activations when disk usage exceeds
+    this percentage to prevent data loss (default: 90)
+* DB_DISK_SPACE_RETRY_SECONDS - Delay before retry after disk space error,
+    giving administrators time to free space (default: 1800 = 30 minutes)
+
 Optionally you can define DATABASES as an object
 * DATABASES - A dict with django database settings
 
@@ -165,6 +173,22 @@ ACTIVATION_RESTART_SECONDS_ON_FAILURE: int = 60
 ACTIVATION_MAX_RESTARTS_ON_FAILURE: int = 5
 
 # ---------------------------------------------------------
+# DATABASE DISK SPACE MONITORING SETTINGS
+# ---------------------------------------------------------
+# Enable/disable database disk space monitoring during activation lifecycle
+DB_DISK_SPACE_CHECK_ENABLED: bool = True
+
+# Threshold percentage at which activations are stopped to prevent data loss
+# When database disk usage exceeds this percentage, activations are proactively
+# stopped and restart policy is suspended to allow administrators to free space
+DB_DISK_SPACE_THRESHOLD_PERCENT: int = 90
+
+# Retry delay in seconds after stopping due to disk space issues
+# Activations will attempt to restart after this delay to check if space was freed
+# Default: 1800 seconds (30 minutes) to give administrators time to intervene
+DB_DISK_SPACE_RETRY_SECONDS: int = 1800
+
+# ---------------------------------------------------------
 # RULEBOOK ENGINE LOG LEVEL
 # ---------------------------------------------------------
 ANSIBLE_RULEBOOK_LOG_LEVEL: str = "error"
@@ -212,6 +236,12 @@ PG_NOTIFY_DSN_SERVER: Optional[str] = None
 EVENT_STREAM_BASE_URL: UrlSlash = None
 EVENT_STREAM_MTLS_BASE_URL: UrlSlash = None
 MAX_PG_NOTIFY_MESSAGE_SIZE: int = 6144
+
+# WebSocket DB Workers settings
+# Number of concurrent workers processing ActionMessage events from WebSocket
+# Higher values improve throughput but increase DB connection usage
+# Each worker uses 1 DB connection. Recommended: 3-10 workers.
+WEBSOCKET_ACTION_MESSAGE_WORKERS: int = 3
 
 # Database credentials for the event streams user
 EVENT_STREAM_DB_USER: Optional[str] = None

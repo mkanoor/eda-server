@@ -32,6 +32,7 @@ from aap_eda.core.utils.credentials import (
 from aap_eda.core.utils.strings import extract_variables, substitute_variables
 from aap_eda.middleware.request_log_middleware import assign_log_tracking_id
 
+from . import db_workers
 from .messages import (
     ActionMessage,
     AnsibleEventMessage,
@@ -100,6 +101,12 @@ DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
 
 class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        """Accept WebSocket connection and ensure DB workers are started."""
+        # Start DB workers on first connection (idempotent, only starts once)
+        await db_workers.start_workers()
+        await self.accept()
+
     async def receive(self, text_data=None, bytes_data=None):
         data = json.loads(text_data)
 
@@ -194,7 +201,7 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
 
     async def handle_actions(self, message: ActionMessage):
         logger.info(f"Start to handle actions: {message}")
-        await self.insert_audit_rule_data(message)
+        await db_workers.enqueue_action(message)
 
     async def _set_log_tracking_id(self, data: dict):
         activation_instance_id = data.get("activation_id")
@@ -202,27 +209,9 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
             activation = await self.get_activation(activation_instance_id)
             assign_log_tracking_id(activation.log_tracking_id)
 
-    @database_sync_to_async
-    def handle_heartbeat(self, message: HeartbeatMessage) -> None:
+    async def handle_heartbeat(self, message: HeartbeatMessage) -> None:
         logger.info(f"Start to handle heartbeat: {message}")
-
-        instance = models.RulebookProcess.objects.filter(
-            id=message.activation_id
-        ).first()
-
-        if instance:
-            instance.updated_at = message.reported_at or timezone.now()
-            instance.save(update_fields=["updated_at"])
-
-            activation = instance.get_parent()
-            activation.ruleset_stats[
-                message.stats["ruleSetName"]
-            ] = message.stats
-            activation.save(update_fields=["ruleset_stats"])
-        else:
-            logger.warning(
-                f"Activation instance {message.activation_id} is not present."
-            )
+        await db_workers.enqueue_session_stats(message)
 
     @database_sync_to_async
     def insert_event_related_data(self, message: AnsibleEventMessage) -> None:
@@ -271,107 +260,6 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
                 f"Job instance host {job_instance_host.id} is created."
             )
 
-    @database_sync_to_async
-    def insert_audit_rule_data(self, message: ActionMessage) -> None:
-        job_instance_id = None
-        if message.job_id:
-            job_instance = models.JobInstance.objects.filter(
-                uuid=message.job_id
-            ).first()
-            job_instance_id = job_instance.id if job_instance else None
-
-        audit_rule = models.AuditRule.objects.filter(
-            rule_uuid=message.rule_uuid, fired_at=message.rule_run_at
-        ).first()
-
-        try:
-            activation_instance = models.RulebookProcess.objects.get(
-                id=message.activation_id
-            )
-        except ObjectDoesNotExist:
-            logger.error(f"RulebookProcess {message.activation_id} not found")
-            raise
-
-        if audit_rule is None:
-            activation_org = models.Organization.objects.filter(
-                id=activation_instance.organization.id
-            ).first()
-            audit_rule = models.AuditRule.objects.create(
-                activation_instance_id=message.activation_id,
-                name=message.rule,
-                rule_uuid=message.rule_uuid,
-                ruleset_uuid=message.ruleset_uuid,
-                ruleset_name=message.ruleset,
-                fired_at=message.rule_run_at,
-                job_instance_id=job_instance_id,
-                status=message.status,
-                organization=activation_org,
-            )
-
-            logger.info(f"Audit rule [{audit_rule.name}] is created.")
-        else:
-            # if rule has multiple actions and one of its action's status is
-            # 'failed', keep rule's status as 'failed'
-            if (
-                audit_rule.status != message.status
-                and audit_rule.status != "failed"
-            ):
-                audit_rule.status = message.status
-                audit_rule.save()
-
-        audit_action = models.AuditAction.objects.filter(
-            id=message.action_uuid
-        ).first()
-
-        if audit_action is None:
-            inputs = {}
-            aap_credential_type = models.CredentialType.objects.filter(
-                name=DefaultCredentialType.AAP
-            )
-            if aap_credential_type:
-                credentials = (
-                    activation_instance.get_parent().eda_credentials.filter(
-                        credential_type_id=aap_credential_type[0].id
-                    )
-                )
-                if credentials:
-                    inputs = get_resolved_secrets(credentials[0])
-
-            url = self._get_url(message, inputs)
-            audit_action = models.AuditAction.objects.create(
-                id=message.action_uuid,
-                fired_at=message.run_at,
-                name=message.action,
-                url=url,
-                status=message.status,
-                rule_fired_at=message.rule_run_at,
-                audit_rule_id=audit_rule.id,
-                status_message=message.message,
-            )
-
-            logger.info(f"Audit action [{audit_action.name}] is created.")
-
-        matching_events = message.matching_events
-        for event_meta in matching_events.values():
-            meta = event_meta.pop("meta")
-            if meta:
-                audit_event = models.AuditEvent.objects.filter(
-                    id=meta.get("uuid")
-                ).first()
-
-                if audit_event is None:
-                    audit_event = models.AuditEvent.objects.create(
-                        id=meta.get("uuid"),
-                        source_name=meta.get("source", {}).get("name"),
-                        source_type=meta.get("source", {}).get("type"),
-                        payload=event_meta,
-                        received_at=meta.get("received_at"),
-                        rule_fired_at=message.rule_run_at,
-                    )
-                    logger.info(f"Audit event [{audit_event.id}] is created.")
-
-                audit_event.audit_actions.add(audit_action)
-                audit_event.save()
 
     @database_sync_to_async
     def insert_job_related_data(
@@ -502,43 +390,6 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
             or get_default_rule_engine_credential()
         )
 
-    def _get_url(self, message: ActionMessage, inputs: dict) -> str:
-        if message.action not in ("run_job_template", "run_workflow_template"):
-            return ""
-        url = message.url
-
-        if not message.controller_job_id:
-            return url
-
-        if not inputs:
-            return url
-
-        api_url = inputs["host"]
-        urlparts = urlparse(api_url)
-
-        path = urlparts.path.rstrip("/")
-        if path == "":
-            path = "/"
-        if path in settings.API_PATH_TO_UI_PATH_MAP:
-            path = settings.API_PATH_TO_UI_PATH_MAP[path]
-
-        if message.action == "run_job_template":
-            slug = f"{path}/jobs/playbook/{message.controller_job_id}/details/"
-        else:
-            slug = f"{path}/jobs/workflow/{message.controller_job_id}/details/"
-
-        result = urlunparse(
-            [
-                urlparts.scheme,
-                urlparts.netloc,
-                slug,
-                urlparts.params,
-                urlparts.query,
-                urlparts.fragment,
-            ]
-        )
-        logger.info("Updated Job URL %s", result)
-        return result
 
     @database_sync_to_async
     def get_file_contents_from_credentials(

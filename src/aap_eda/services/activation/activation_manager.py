@@ -13,6 +13,7 @@
 #  limitations under the License.
 """Module for Activation Manager."""
 import contextlib
+import json
 import logging
 import os
 import typing as tp
@@ -36,6 +37,7 @@ from aap_eda.services.activation.restart_helper import (
     system_restart_activation,
 )
 
+from .db_health import DatabaseHealthMonitor
 from .drools_cleanup import drools_cleanup
 from .engine.common import ContainerableInvalidError, ContainerEngine
 from .engine.factory import new_container_engine
@@ -360,6 +362,8 @@ class ActivationManager(StatusManager):
         )
 
     def _is_unresponsive(self, check_readiness: bool) -> bool:
+        from aap_eda.core.models import RulebookProcessHeartbeat
+
         previous_time = None
         if check_readiness:
             previous_time = self.latest_instance.started_at
@@ -368,20 +372,104 @@ class ActivationManager(StatusManager):
             ActivationStatus.RUNNING,
             ActivationStatus.STARTING,
         ]:
-            previous_time = self.latest_instance.updated_at
+            # Check heartbeat table instead of RulebookProcess.updated_at
+            # This avoids lock contention and reads the most recent heartbeat
+            try:
+                heartbeat = RulebookProcessHeartbeat.objects.get(
+                    process_id=self.latest_instance.id
+                )
+                previous_time = heartbeat.updated_at
+            except RulebookProcessHeartbeat.DoesNotExist:
+                # No heartbeat record yet - use started_at as fallback
+                # This handles the case where the process just started
+                previous_time = self.latest_instance.started_at
+                LOGGER.warning(
+                    f"No heartbeat record found for RulebookProcess {self.latest_instance.id}. "
+                    f"Using started_at as fallback."
+                )
+
             timeout = settings.RULEBOOK_LIVENESS_TIMEOUT_SECONDS
 
         if previous_time:
             cutoff_time = timezone.now() - timedelta(seconds=timeout)
-            return previous_time < cutoff_time
+            is_unresponsive = previous_time < cutoff_time
+
+            # Add forensics logging when unresponsive is detected
+            if is_unresponsive:
+                time_since_update = (timezone.now() - previous_time).total_seconds()
+
+                # Get heartbeat stats for forensics
+                heartbeat_stats = {}
+                try:
+                    heartbeat = RulebookProcessHeartbeat.objects.get(
+                        process_id=self.latest_instance.id
+                    )
+                    heartbeat_stats = heartbeat.stats
+                except RulebookProcessHeartbeat.DoesNotExist:
+                    heartbeat_stats = {"error": "No heartbeat record found"}
+
+                LOGGER.warning(
+                    f"Activation {self.db_instance.id} appears unresponsive. "
+                    f"Forensics:\n"
+                    f"  - Heartbeat.updated_at: {previous_time}\n"
+                    f"  - Time since last heartbeat: {time_since_update:.1f}s\n"
+                    f"  - Timeout threshold: {timeout}s\n"
+                    f"  - Heartbeat stats: {json.dumps(heartbeat_stats, indent=2, default=str)}"
+                )
+
+            return is_unresponsive
         return False
 
     def _unresponsive_policy(self, check_type: str):
         """Apply the unresponsive restart policy."""
+        from aap_eda.core.models import RulebookProcessHeartbeat
+
         LOGGER.info(
             "Unresponsive policy called for "
             f"activation id: {self.db_instance.id}",
         )
+
+        # Add detailed forensics logging
+        # Refresh to get absolute latest data
+        self.db_instance.refresh_from_db()
+        self.latest_instance.refresh_from_db()
+
+        # Get heartbeat data from the dedicated heartbeat table
+        heartbeat_updated_at = None
+        heartbeat_stats = {}
+        try:
+            heartbeat = RulebookProcessHeartbeat.objects.get(
+                process_id=self.latest_instance.id
+            )
+            heartbeat_updated_at = heartbeat.updated_at
+            heartbeat_stats = heartbeat.stats or {}
+        except RulebookProcessHeartbeat.DoesNotExist:
+            heartbeat_updated_at = "No heartbeat record found"
+            heartbeat_stats = {"error": "No heartbeat record exists"}
+
+        # Extract timestamps from heartbeat stats for each ruleset
+        ruleset_diagnostics = {}
+        for ruleset_name, stats in heartbeat_stats.items():
+            if isinstance(stats, dict):  # Skip error messages
+                ruleset_diagnostics[ruleset_name] = {
+                    "lastRuleFiredAt": stats.get("lastRuleFiredAt"),
+                    "lastEventReceivedAt": stats.get("lastEventReceivedAt"),
+                    "lastClockTime": stats.get("lastClockTime"),
+                    "eventsProcessed": stats.get("eventsProcessed"),
+                    "rulesTriggered": stats.get("rulesTriggered"),
+                }
+
+        LOGGER.error(
+            f"LIVENESS CHECK FAILED - Activation {self.db_instance.id} is unresponsive!\n"
+            f"=== FORENSICS REPORT ===\n"
+            f"Check Type: {check_type}\n"
+            f"RulebookProcess ID: {self.latest_instance.id}\n"
+            f"RulebookProcess.started_at: {self.latest_instance.started_at}\n"
+            f"Heartbeat.updated_at: {heartbeat_updated_at}\n"
+            f"Heartbeat.stats:\n{json.dumps(ruleset_diagnostics, indent=2, default=str)}\n"
+            f"=== END FORENSICS ===\n"
+        )
+
         container_logger = self.container_logger_class(self.latest_instance.id)
         if self.db_instance.restart_policy == RestartPolicy.NEVER:
             LOGGER.info(
@@ -517,6 +605,53 @@ class ActivationManager(StatusManager):
                 ActivationStatus.COMPLETED,
                 user_msg,
             )
+
+    def _disk_space_policy(self, disk_error_msg: str, disk_info):
+        """Apply the disk space full policy.
+
+        When database disk space is critically low, stop the activation
+        and suspend restart policy for a configured delay period to allow
+        administrators to free up space.
+        """
+        container_logger = self.container_logger_class(self.latest_instance.id)
+        LOGGER.error(
+            f"Disk space policy called for activation id: {self.db_instance.id}"
+        )
+
+        # Log disk space details
+        DatabaseHealthMonitor.log_disk_space_info(disk_info)
+
+        # Write clear error message to container logs
+        container_logger.write(disk_error_msg, flush=True)
+
+        # Stop the instance cleanly
+        try:
+            self._fail_instance(disk_error_msg)
+        except engine_exceptions.ContainerCleanupError as exc:
+            msg = (
+                f"Activation {self.db_instance.id} failed to cleanup during "
+                f"disk space policy. Reason: {exc}"
+            )
+            LOGGER.error(msg)
+            self._error_instance(msg)
+            self.set_status(ActivationStatus.ERROR, msg)
+            raise exceptions.ActivationMonitorError(msg) from exc
+
+        # Set activation to ERROR status (not FAILED) to distinguish from normal failures
+        # This prevents the normal restart policy from applying
+        self.set_status(ActivationStatus.ERROR, disk_error_msg)
+
+        # Schedule a delayed retry to check if disk space has been freed
+        retry_seconds = DatabaseHealthMonitor.get_retry_delay_seconds()
+        LOGGER.info(
+            f"Activation {self.db_instance.id} stopped due to disk space. "
+            f"Scheduling retry in {retry_seconds} seconds."
+        )
+        system_restart_activation(
+            self.db_instance_type,
+            self.db_instance.id,
+            delay_seconds=retry_seconds,
+        )
 
     def _failed_policy(self, container_msg: str):
         container_logger = self.container_logger_class(self.latest_instance.id)
@@ -873,6 +1008,20 @@ class ActivationManager(StatusManager):
             self.stop()
             return
 
+        # Check database disk space before proceeding with monitoring
+        # This prevents silent data loss by stopping activations proactively
+        is_critical, error_msg, disk_info = DatabaseHealthMonitor.check_disk_space()
+        if is_critical:
+            LOGGER.error(
+                f"Monitor operation: activation id: {self.db_instance.id} "
+                f"Database disk space critically low. Stopping activation."
+            )
+            self._disk_space_policy(error_msg, disk_info)
+            return
+
+        # Log disk space info for monitoring (even when not critical)
+        DatabaseHealthMonitor.log_disk_space_info(disk_info)
+
         if self.db_instance.status not in [
             ActivationStatus.STARTING,
             ActivationStatus.RUNNING,
@@ -988,16 +1137,26 @@ class ActivationManager(StatusManager):
             )
 
     def _detect_running_status(self):
-        if (
-            self.latest_instance.status == ActivationStatus.STARTING
-            and self.latest_instance.updated_at
-        ):
-            # safely turn the status to running after updated_at was set
-            # upon receiving at least one heartbeat
-            with transaction.atomic():
-                self.set_status(ActivationStatus.RUNNING)
-                self.set_latest_instance_status(ActivationStatus.RUNNING)
-                self._reset_failure_count()
+        from aap_eda.core.models import RulebookProcessHeartbeat
+
+        if self.latest_instance.status == ActivationStatus.STARTING:
+            # Check if we've received at least one heartbeat with actual stats
+            # This indicates the rulebook process is alive and running
+            try:
+                heartbeat = RulebookProcessHeartbeat.objects.get(
+                    process_id=self.latest_instance.id
+                )
+                # Only transition to RUNNING if we have actual stats (non-empty)
+                # Empty stats {} means the initial record was created but no SessionStats received yet
+                if heartbeat.stats:
+                    # Heartbeat with valid stats - safely turn the status to running
+                    with transaction.atomic():
+                        self.set_status(ActivationStatus.RUNNING)
+                        self.set_latest_instance_status(ActivationStatus.RUNNING)
+                        self._reset_failure_count()
+            except RulebookProcessHeartbeat.DoesNotExist:
+                # No heartbeat record yet, keep status as STARTING
+                pass
 
     def update_logs(self):
         """Update the logs of the latest instance of the activation."""

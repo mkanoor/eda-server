@@ -33,6 +33,7 @@ from .queue import ActivationRequestQueue
 from .rulebook import AuditAction, AuditEvent, AuditRule, Rulebook
 from .rulebook_process import (
     RulebookProcess,
+    RulebookProcessHeartbeat,
     RulebookProcessLog,
     RulebookProcessQueue,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ActivationInstanceJobInstance",
     "RulebookProcessLog",
     "RulebookProcess",
+    "RulebookProcessHeartbeat",
     "RulebookProcessQueue",
     "Activation",
     "AuditAction",

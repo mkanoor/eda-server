@@ -33,6 +33,7 @@ from .base import BaseOrgModel
 __all__ = (
     "RulebookProcess",
     "RulebookProcessLog",
+    "RulebookProcessHeartbeat",
 )
 
 
@@ -80,8 +81,11 @@ class RulebookProcess(BaseOrgModel):
         return f"Rulebook Process id {self.id}"
 
     def save(self, *args, **kwargs):
+        # Track if this is a new instance (before save changes the state)
+        is_new = self._state.adding
+
         # when creating
-        if self._state.adding:
+        if is_new:
             # ensure type is set
             self._set_parent_type()
             parent = self.get_parent()
@@ -116,6 +120,15 @@ class RulebookProcess(BaseOrgModel):
                 kwargs["update_fields"].append("status_message")
 
         super().save(*args, **kwargs)
+
+        # Create heartbeat record when RulebookProcess is first created
+        # This ensures the heartbeat table always has a row for liveness checks
+        # even before the first SessionStats message arrives from ansible-rulebook
+        if is_new:
+            RulebookProcessHeartbeat.objects.create(
+                process_id=self.id,
+                stats={}
+            )
 
         # update parent's latest_instance
         parent = self.get_parent()
@@ -219,3 +232,81 @@ class RulebookProcessQueue(models.Model):
         return (
             f"Rulebook Process id {self.process.id} in queue {self.queue_name}"
         )
+
+
+class RulebookProcessHeartbeat(models.Model):
+    """
+    Heartbeat and statistics tracking for RulebookProcess instances.
+
+    This table is separated from RulebookProcess and Activation to avoid
+    lock contention during high-frequency SessionStats updates. The FK constraint
+    only acquires brief SHARE locks to verify the parent exists during updates,
+    which is negligible overhead compared to the previous design that updated
+    both RulebookProcess.updated_at and Activation.ruleset_stats on every heartbeat.
+
+    Design decisions:
+    - process: FK to RulebookProcess with CASCADE delete for automatic cleanup
+    - updated_at: Auto-updated timestamp for liveness checks
+    - stats: Replaces Activation.ruleset_stats to avoid Activation lock contention
+    - Cascade delete: Heartbeat records are automatically cleaned up with their parent
+    """
+
+    process = models.OneToOneField(
+        "RulebookProcess",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        help_text="RulebookProcess with CASCADE delete for automatic cleanup"
+    )
+
+    # Heartbeat tracking for liveness checks
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Automatically updated on every save - used for liveness checks"
+    )
+
+    # Ruleset statistics (moved from Activation.ruleset_stats)
+    stats = models.JSONField(
+        default=dict,
+        help_text="Ruleset statistics: {ruleset_name: {eventsProcessed, rulesTriggered, ...}}"
+    )
+
+    # Tracking
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "core_rulebook_process_heartbeat"
+        indexes = [
+            models.Index(fields=["updated_at"], name="idx_heartbeat_updated_at"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Heartbeat for RulebookProcess {self.process_id}"
+
+    @classmethod
+    def update_heartbeat(cls, process_id: int, stats: dict = None):
+        """
+        Update or create heartbeat record for a RulebookProcess.
+
+        Args:
+            process_id: The RulebookProcess ID
+            stats: Optional statistics dict to merge with existing stats
+
+        Returns:
+            The updated/created heartbeat record
+        """
+        heartbeat, created = cls.objects.get_or_create(
+            process_id=process_id,
+            defaults={"stats": stats or {}}
+        )
+
+        if not created and stats:
+            # Merge stats (read-modify-write, but on independent row)
+            # This is safe because each process has its own row
+            heartbeat.stats = {
+                **heartbeat.stats,
+                **stats
+            }
+
+        # Save will auto-update updated_at via auto_now
+        heartbeat.save()
+        return heartbeat

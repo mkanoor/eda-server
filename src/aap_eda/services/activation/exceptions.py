@@ -63,3 +63,7 @@ class ActivationImagePullError(ActivationException):
 
 class ActivationImageNotFound(ActivationException):
     pass
+
+
+class DatabaseDiskSpaceError(ActivationManagerError):
+    """Exception raised when database disk space is critically low."""
