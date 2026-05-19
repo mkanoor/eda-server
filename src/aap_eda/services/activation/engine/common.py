@@ -276,6 +276,20 @@ class ContainerStatus(BaseModel):
     message: str = ""
 
 
+class ContainerEvent(BaseModel):
+    """Container lifecycle event from the container engine.
+
+    Attributes:
+        container_id: The container/pod ID
+        event_type: The type of event (e.g., 'died', 'stopped', 'oom')
+        timestamp: When the event occurred
+    """
+
+    container_id: str
+    event_type: str
+    timestamp: datetime
+
+
 class ContainerEngine(ABC):
     """Abstract interface to connect to the deployment backend."""
 
@@ -317,6 +331,31 @@ class ContainerEngine(ABC):
             ...
         except Exception as e:
             raise exceptions.ContainerUpdateLogsError(e) from e
+
+    @abstractmethod
+    def watch_events(self) -> tp.Iterator[ContainerEvent]:
+        """Watch container lifecycle events.
+
+        This is a blocking/streaming operation that yields container events
+        as they occur. Intended to be run in a background thread.
+
+        The implementation should:
+        - Filter for relevant events (container state changes)
+        - Stream events indefinitely (blocking call)
+        - Raise ContainerEngineError on stream failure
+        - Support graceful termination
+
+        Yields:
+            ContainerEvent objects for container state changes
+
+        Raises:
+            ContainerEngineError: On stream failure or connection issues
+        """
+        try:
+            # Implementation
+            ...
+        except Exception as e:
+            raise exceptions.ContainerEngineError(e) from e
 
 
 class SpeficicImagePullError(Exception):

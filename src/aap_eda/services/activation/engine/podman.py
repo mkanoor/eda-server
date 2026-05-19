@@ -14,6 +14,8 @@
 
 import logging
 import os
+import typing as tp
+from datetime import datetime
 
 from dateutil import parser
 from dispatcherd.worker.task import DispatcherCancel
@@ -30,6 +32,7 @@ from aap_eda.utils.podman import parse_repository
 from . import exceptions, messages
 from .common import (
     ContainerEngine,
+    ContainerEvent,
     ContainerRequest,
     ContainerStatus,
     LogHandler,
@@ -458,3 +461,103 @@ class Engine(ContainerEngine):
 
         LOGGER.info(pod_args)
         return pod_args
+
+    def watch_events(self) -> tp.Iterator[ContainerEvent]:
+        """Watch container lifecycle events from Podman.
+
+        Streams container events from the Podman events API. This is a
+        blocking call that yields events as they occur. Monitors all
+        container lifecycle events to trigger activation status updates.
+
+        Events monitored:
+        - start: Container started (STARTING → RUNNING transition)
+        - restart: Container restarted
+        - died: Container exited (normal or error)
+        - stop: Container stopped
+        - kill: Container killed
+        - oom: Out of memory kill
+        - remove: Container removed
+
+        Yields:
+            ContainerEvent objects for relevant container state changes
+
+        Raises:
+            ContainerEngineError: On API errors or connection failures
+        """
+        try:
+            LOGGER.info("Starting Podman event stream")
+
+            # Configure event filters
+            # Watch container lifecycle events to update activation status
+            # Note: Values must be lists for podman-py 5.x
+            filters = {
+                "type": ["container"],
+                "event": [
+                    # State transition events (STARTING → RUNNING)
+                    "start",  # Container started - triggers STARTING → RUNNING
+                    "restart",  # Container restarted
+                    # Terminal state events (RUNNING → COMPLETED/FAILED)
+                    "died",  # Container exited (normal or error)
+                    "stop",  # Container stopped
+                    "kill",  # Container killed
+                    "oom",  # Out of memory kill
+                    # Cleanup events
+                    "remove",  # Container removed
+                ],
+            }
+
+            LOGGER.info(f"Podman event filters: {filters}")
+
+            # Stream events from Podman
+            # This is a blocking call that streams indefinitely
+            # Note: The podman-py events() method returns a generator by default
+            # The 'decode=True' parameter makes it yield dicts instead of strings
+            for event in self.client.events(filters=filters, decode=True):
+                # Extract event details
+                # Podman event structure: {"Action": "died", "Actor": {"ID": "..."}, "time": ...}
+                actor = event.get("Actor", {})
+                container_id = actor.get("ID")
+                event_type = event.get("Action", "unknown")
+                event_time = event.get("time")
+
+                if not container_id:
+                    LOGGER.debug(
+                        f"Skipping event with no container ID: {event}"
+                    )
+                    continue
+
+                # Parse timestamp
+                if isinstance(event_time, int):
+                    # Unix timestamp
+                    timestamp = datetime.fromtimestamp(event_time)
+                elif isinstance(event_time, str):
+                    # ISO format string
+                    try:
+                        timestamp = parser.parse(event_time)
+                    except Exception as e:
+                        LOGGER.warning(
+                            f"Failed to parse timestamp '{event_time}': {e}"
+                        )
+                        timestamp = datetime.now()
+                else:
+                    timestamp = datetime.now()
+
+                # Yield the event
+                LOGGER.debug(
+                    f"Podman event: {event_type} for container {container_id[:12]}"
+                )
+                yield ContainerEvent(
+                    container_id=container_id,
+                    event_type=event_type,
+                    timestamp=timestamp,
+                )
+
+        except APIError as e:
+            error_msg = f"Podman events stream error: {e}"
+            LOGGER.error(error_msg)
+            raise exceptions.ContainerEngineError(error_msg) from e
+
+        except Exception as e:
+            error_msg = f"Unexpected error in Podman event stream: {e}"
+            LOGGER.error(error_msg, exc_info=True)
+            raise exceptions.ContainerEngineError(error_msg) from e

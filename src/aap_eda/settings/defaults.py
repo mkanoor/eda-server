@@ -165,6 +165,49 @@ ACTIVATION_RESTART_SECONDS_ON_FAILURE: int = 60
 ACTIVATION_MAX_RESTARTS_ON_FAILURE: int = 5
 
 # ---------------------------------------------------------
+# ACTIVATION EVENT MONITORING SETTINGS
+# ---------------------------------------------------------
+# Enable event-based container monitoring (reduces CPU usage vs polling)
+ACTIVATION_EVENT_MONITORING_ENABLED: bool = True
+
+# Event monitor reconnection settings
+EVENT_MONITOR_RECONNECT_DELAY: int = 5  # seconds
+EVENT_MONITOR_MAX_RECONNECT_ATTEMPTS: int = -1  # -1 for infinite retries
+
+# Delayed monitor for START events
+# When a container starts, schedule a second monitor after this delay
+# to catch the heartbeat (in case first monitor runs before heartbeat arrives)
+EVENT_MONITOR_START_RECHECK_DELAY: int = 5  # seconds
+
+# ---------------------------------------------------------
+# ORCHESTRATOR TASK SCHEDULING
+# ---------------------------------------------------------
+# The orchestrator has been split into two separate tasks:
+#
+# 1. process_activation_requests: Drains ActivationRequestQueue
+#    - Handles user actions (enable/disable/restart)
+#    - Should run frequently for responsive UI (recommended: 5 seconds)
+#    - Lightweight DB query (only ActivationRequestQueue table)
+#
+# 2. monitor_running_activations: Periodic health checks
+#    - Monitors all STARTING/RUNNING/WORKERS_OFFLINE activations
+#    - Safety net when combined with event monitoring
+#    - Can run infrequently with events enabled (recommended: 300 seconds)
+#    - Heavier DB query (all running RulebookProcess rows)
+#
+# With event monitoring enabled, the system uses 4 layers:
+# - Container events: Immediate state changes (<1s latency)
+# - Delayed monitors: Heartbeat detection (5s latency)
+# - Request processing: User actions (5s latency)
+# - Periodic monitoring: Safety net (300s interval)
+#
+# Configuration via environment:
+# export EDA_ACTIVATION_REQUEST_PROCESSING_INTERVAL=5     # Fast user response
+# export EDA_ACTIVATION_MONITORING_INTERVAL=300           # Slow safety net
+ACTIVATION_REQUEST_PROCESSING_INTERVAL: int = 5  # seconds
+ACTIVATION_MONITORING_INTERVAL: int = 300  # seconds
+
+# ---------------------------------------------------------
 # RULEBOOK ENGINE LOG LEVEL
 # ---------------------------------------------------------
 ANSIBLE_RULEBOOK_LOG_LEVEL: str = "error"

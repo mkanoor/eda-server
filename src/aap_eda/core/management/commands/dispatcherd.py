@@ -15,6 +15,7 @@
 """Command for running dispatcherd worker service."""
 
 import logging
+import signal
 
 from dispatcherd import run_service as run_dispatcherd_service
 from dispatcherd.config import setup as dispatcherd_setup
@@ -22,6 +23,10 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 
 from aap_eda import utils
+from aap_eda.services.activation.event_monitor import (
+    start_event_monitor,
+    stop_event_monitor,
+)
 from aap_eda.utils.logging import startup_logging
 
 logger = logging.getLogger(__name__)
@@ -51,6 +56,19 @@ class Command(BaseCommand):
         """Handle dispatcherd service."""
         worker_class = options.get("worker_class")
         verbosity = options.get("verbosity", 1)
+        event_monitor = None
+
+        def handle_shutdown(signum, frame):
+            """Handle shutdown signals gracefully."""
+            logger.info(f"Received signal {signum}, shutting down...")
+            if event_monitor:
+                logger.info("Stopping event monitor...")
+                stop_event_monitor()
+            raise KeyboardInterrupt()
+
+        # Register signal handlers for graceful shutdown
+        signal.signal(signal.SIGTERM, handle_shutdown)
+        signal.signal(signal.SIGINT, handle_shutdown)
 
         try:
             if worker_class == "ActivationWorker":
@@ -79,6 +97,26 @@ class Command(BaseCommand):
                     },
                 }
                 dispatcherd_setup(dispatcher_worker_settings)
+
+                # Start container event monitor for ActivationWorker
+                # This runs in a background thread and monitors container events
+                # specific to this worker's queue/node
+                if getattr(settings, "ACTIVATION_EVENT_MONITORING_ENABLED", True):
+                    queue_name = settings.RULEBOOK_QUEUE_NAME
+                    logger.info(
+                        f"Starting container event monitor for queue: {queue_name}"
+                    )
+                    if verbosity >= 2:
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f"Starting event monitor for queue: {queue_name}"
+                            )
+                        )
+                    event_monitor = start_event_monitor(queue_name)
+                else:
+                    logger.info(
+                        "Container event monitoring disabled by configuration"
+                    )
 
             elif worker_class == "DefaultWorker":
                 dispatcherd_setup(settings.DISPATCHERD_DEFAULT_WORKER_SETTINGS)
@@ -109,3 +147,9 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(error_msg))
             logger.error(error_msg, exc_info=True)
             raise SystemExit(1)
+
+        finally:
+            # Ensure event monitor is stopped on exit
+            if event_monitor:
+                logger.info("Cleaning up event monitor...")
+                stop_event_monitor()

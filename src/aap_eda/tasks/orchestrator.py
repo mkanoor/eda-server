@@ -562,6 +562,16 @@ def monitor_rulebook_processes() -> None:
     """Wrap monitor_rulebook_processes_no_lock.
 
     Ensures only one task is executed.
+
+    DEPRECATED: This function combines two separate responsibilities:
+    1. Processing user requests from ActivationRequestQueue
+    2. Monitoring running activations
+
+    Consider using the split functions instead:
+    - process_activation_requests() for user actions (fast)
+    - monitor_running_activations() for health checks (slow)
+
+    This allows independent scheduling of each responsibility.
     """
     with advisory_lock("monitor_rulebook_processes", wait=False) as acquired:
         if not acquired:
@@ -572,3 +582,100 @@ def monitor_rulebook_processes() -> None:
             return
 
         monitor_rulebook_processes_no_lock()
+
+
+def process_activation_requests_no_lock() -> None:
+    """Process pending activation requests from the queue.
+
+    Drains the ActivationRequestQueue and dispatches user-initiated actions
+    (enable, disable, restart) to workers. This should run frequently
+    (every 1-5 seconds) to provide responsive user experience.
+
+    This is the first half of monitor_rulebook_processes, split out to
+    allow independent scheduling.
+    """
+    # Process pending user requests
+    for request in requests_queue.list_requests():
+        queue_dispatch(
+            request.process_parent_type,
+            request.process_parent_id,
+            request.request,
+            request.request_id,
+        )
+
+
+def process_activation_requests() -> None:
+    """Process pending activation requests from the queue.
+
+    Wraps process_activation_requests_no_lock with advisory lock to
+    ensure only one instance runs at a time.
+
+    Schedule: Every 1-5 seconds (recommended: 5)
+    Purpose: Fast processing of user-initiated actions
+    DB Load: Lightweight (only queries ActivationRequestQueue table)
+    """
+    with advisory_lock("process_activation_requests", wait=False) as acquired:
+        if not acquired:
+            LOGGER.debug(
+                "process_activation_requests already running, skipping"
+            )
+            return
+
+        process_activation_requests_no_lock()
+
+
+def monitor_running_activations_no_lock() -> None:
+    """Monitor health of running activations (periodic safety net).
+
+    Checks all activations in STARTING/RUNNING/WORKERS_OFFLINE status
+    and dispatches monitoring tasks. This is a safety net that complements
+    event-driven monitoring.
+
+    With event monitoring enabled, this can run infrequently (60-300 seconds)
+    as most state changes are caught by container events.
+
+    This is the second half of monitor_rulebook_processes, split out to
+    allow independent scheduling.
+    """
+    # Monitor running instances
+    for process in models.RulebookProcess.objects.filter(
+        status__in=[
+            ActivationStatus.STARTING,
+            ActivationStatus.RUNNING,
+            ActivationStatus.WORKERS_OFFLINE,
+        ]
+    ):
+        process_parent_type = str(process.parent_type)
+        process_parent_id = process.activation_id
+
+        queue_dispatch(
+            process_parent_type,
+            process_parent_id,
+            None,  # Monitor request (no specific action)
+            str(uuid.uuid4()),
+        )
+
+
+def monitor_running_activations() -> None:
+    """Monitor health of running activations (periodic safety net).
+
+    Wraps monitor_running_activations_no_lock with advisory lock to
+    ensure only one instance runs at a time.
+
+    Schedule: Every 60-300 seconds (recommended: 300 with event monitoring)
+    Purpose: Safety net to catch edge cases missed by event monitoring
+    DB Load: Heavier (queries all running RulebookProcess rows)
+
+    With event monitoring enabled:
+    - Container events handle immediate state changes (<1s latency)
+    - Delayed monitors handle heartbeat detection (5s latency)
+    - This periodic check catches anything missed (300s interval)
+    """
+    with advisory_lock("monitor_running_activations", wait=False) as acquired:
+        if not acquired:
+            LOGGER.debug(
+                "monitor_running_activations already running, skipping"
+            )
+            return
+
+        monitor_running_activations_no_lock()

@@ -15,6 +15,7 @@
 import base64
 import json
 import logging
+import typing as tp
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -38,6 +39,7 @@ from aap_eda.services.activation.engine.exceptions import (
 from . import messages
 from .common import (
     ContainerEngine,
+    ContainerEvent,
     ContainerRequest,
     ContainerStatus,
     LogHandler,
@@ -658,3 +660,100 @@ class Engine(ContainerEngine):
         except ApiException as e:
             LOGGER.error(f"API Exception {e}")
             raise ContainerCleanupError(str(e)) from e
+
+    def watch_events(self) -> tp.Iterator[ContainerEvent]:
+        """Watch pod lifecycle events from Kubernetes.
+
+        Streams pod events from the Kubernetes Watch API. This is a
+        blocking call that yields events as they occur. Filters for
+        pods with the EDA activation labels.
+
+        Events monitored:
+        - Pod phase: Pending → Running (triggers STARTING → RUNNING)
+        - Pod phase: Running → Succeeded (triggers RUNNING → COMPLETED)
+        - Pod phase: Running → Failed (triggers RUNNING → FAILED)
+        - Pod deletions (triggers cleanup)
+
+        Yields:
+            ContainerEvent objects for relevant pod state changes
+
+        Raises:
+            ContainerEngineError: On API errors or connection failures
+        """
+        try:
+            LOGGER.info(
+                f"Starting Kubernetes pod watch for namespace {self.namespace}"
+            )
+
+            # Create watch instance for streaming events
+            w = watch.Watch()
+
+            # Watch pods with EDA activation labels
+            # Filter to only EDA activation pods to reduce noise
+            label_selector = "app=eda,comp=activation"
+
+            # Stream pod events
+            # This is a blocking call that streams indefinitely
+            for event in w.stream(
+                self.client.core_api.list_namespaced_pod,
+                namespace=self.namespace,
+                label_selector=label_selector,
+            ):
+                event_type = event["type"]  # ADDED, MODIFIED, DELETED
+                pod = event["object"]
+
+                pod_name = pod.metadata.name
+                pod_phase = pod.status.phase if pod.status else None
+
+                # Only process MODIFIED and DELETED events
+                # MODIFIED: Pod phase changed
+                # DELETED: Pod was deleted
+                if event_type not in ["MODIFIED", "DELETED"]:
+                    continue
+
+                # Map Kubernetes pod phases to event types
+                # Process all phase transitions to update activation status
+                if event_type == "DELETED":
+                    event_action = "deleted"
+                elif pod_phase == "Running":
+                    # Pod started running - triggers STARTING → RUNNING
+                    event_action = "start"
+                elif pod_phase == "Succeeded":
+                    # Pod completed successfully - triggers RUNNING → COMPLETED
+                    event_action = "completed"
+                elif pod_phase == "Failed":
+                    # Pod failed - triggers RUNNING → FAILED
+                    event_action = "failed"
+                elif pod_phase == "Unknown":
+                    # Unknown state - investigate
+                    event_action = "unknown"
+                else:
+                    # Skip Pending phase (no action needed)
+                    # Container not started yet
+                    continue
+
+                # Get timestamp
+                timestamp = datetime.now(timezone.utc)
+                if pod.status and pod.status.start_time:
+                    timestamp = pod.status.start_time
+
+                LOGGER.debug(
+                    f"Kubernetes event: {event_action} for pod {pod_name} "
+                    f"(phase={pod_phase})"
+                )
+
+                yield ContainerEvent(
+                    container_id=pod_name,
+                    event_type=event_action,
+                    timestamp=timestamp,
+                )
+
+        except ApiException as e:
+            error_msg = f"Kubernetes watch stream error: {e}"
+            LOGGER.error(error_msg)
+            raise ContainerEngineError(error_msg) from e
+
+        except Exception as e:
+            error_msg = f"Unexpected error in Kubernetes watch stream: {e}"
+            LOGGER.error(error_msg, exc_info=True)
+            raise ContainerEngineError(error_msg) from e

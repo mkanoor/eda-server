@@ -153,7 +153,17 @@ DISPATCHERD_STARTUP_TASKS = {
 }
 
 DISPATCHERD_SCHEDULE_TASKS = {
-    "aap_eda.tasks.orchestrator.monitor_rulebook_processes": {"schedule": 5},
+    # Split orchestrator tasks for better responsiveness and efficiency
+    # These values can be overridden via environment variables:
+    # - EDA_ACTIVATION_REQUEST_PROCESSING_INTERVAL
+    # - EDA_ACTIVATION_MONITORING_INTERVAL
+    "aap_eda.tasks.orchestrator.process_activation_requests": {
+        "schedule": 5  # Fast user response (default from ACTIVATION_REQUEST_PROCESSING_INTERVAL)
+    },
+    "aap_eda.tasks.orchestrator.monitor_running_activations": {
+        "schedule": 300  # Slow safety net (default from ACTIVATION_MONITORING_INTERVAL)
+    },
+    # Project monitoring (unchanged)
     "aap_eda.tasks.project.monitor_project_tasks": {"schedule": 30},
 }
 
