@@ -91,7 +91,19 @@ def _import_project_no_lock(project_id: int):
             return
 
         with transaction.atomic():
+            logger.warning(
+                f"Project {project.id} ({project.name}) import_state "
+                f"before ProjectImportService: {project.import_state}"
+            )
             ProjectImportService().import_project(project)
+            # Refresh project from DB to avoid overwriting import_state
+            # that was updated by ProjectImportService
+            old_state = project.import_state
+            project.refresh_from_db()
+            logger.warning(
+                f"Project {project.id} ({project.name}) import_state: "
+                f"before refresh={old_state}, after refresh={project.import_state}"
+            )
             project.last_synced_at = timezone.now()
             project.save(update_fields=["last_synced_at"])
     except ProjectImportError as e:
@@ -165,7 +177,19 @@ def _sync_project_no_lock(project_id: int):
             return
 
         with transaction.atomic():
+            logger.warning(
+                f"Project {project.id} ({project.name}) import_state "
+                f"before ProjectImportService: {project.import_state}"
+            )
             ProjectImportService().sync_project(project)
+            # Refresh project from DB to avoid overwriting import_state
+            # that was updated by ProjectImportService
+            old_state = project.import_state
+            project.refresh_from_db()
+            logger.warning(
+                f"Project {project.id} ({project.name}) import_state: "
+                f"before refresh={old_state}, after refresh={project.import_state}"
+            )
             project.last_synced_at = timezone.now()
             project.save(update_fields=["last_synced_at"])
     except ProjectImportError as e:
