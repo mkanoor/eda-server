@@ -41,6 +41,7 @@ from .messages import (
     ExtraVars,
     FileContentMessage,
     HeartbeatMessage,
+    HighAvailabilityStatsMessage,
     JobMessage,
     Rulebook,
     VaultCollection,
@@ -61,6 +62,7 @@ class MessageType(Enum):
     SHUTDOWN = "Shutdown"
     PROCESSED_EVENT = "ProcessedEvent"
     SESSION_STATS = "SessionStats"
+    HIGH_AVAILABILITY_STATS = "HighAvailabilityStats"
     FILE_CONTENTS = "FileContents"
 
 
@@ -123,6 +125,10 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
                 logger.info("Websocket connection is closed.")
             elif msg_type == MessageType.SESSION_STATS:
                 await self.handle_heartbeat(HeartbeatMessage.parse_obj(data))
+            elif msg_type == MessageType.HIGH_AVAILABILITY_STATS:
+                await self.handle_high_availability_stats(
+                    HighAvailabilityStatsMessage.parse_obj(data)
+                )
             else:
                 logger.warning(f"Unsupported message received: {data}")
         except (DatabaseError, ObjectDoesNotExist) as err:
@@ -223,6 +229,40 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
             logger.warning(
                 f"Activation instance {message.activation_id} is not present."
             )
+
+    @database_sync_to_async
+    def handle_high_availability_stats(
+        self, message: HighAvailabilityStatsMessage
+    ) -> None:
+        logger.info(f"Start to handle high availability stats: {message}")
+
+        # Extract ha_uuid from stats
+        ha_uuid = message.stats.get("ha_uuid")
+        if not ha_uuid:
+            logger.warning(
+                "HighAvailabilityStats message missing ha_uuid in stats"
+            )
+            return
+
+        # Get the HighAvailabilityGroup by UUID
+        try:
+            high_availability_group = models.HighAvailabilityGroup.objects.get(
+                uuid=ha_uuid
+            )
+        except ObjectDoesNotExist:
+            logger.warning(
+                f"HighAvailabilityGroup with UUID {ha_uuid} not found"
+            )
+            return
+
+        # Update service_stats with the received stats
+        high_availability_group.service_stats = message.stats
+        high_availability_group.save(update_fields=["service_stats", "modified_at"])
+
+        logger.info(
+            f"Updated HighAvailabilityGroup {high_availability_group.id} "
+            f"with high availability stats"
+        )
 
     @database_sync_to_async
     def insert_event_related_data(self, message: AnsibleEventMessage) -> None:

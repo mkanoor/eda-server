@@ -65,6 +65,8 @@ class AnsibleRulebookCmdLine(BaseModel):
     skip_audit_events: bool = False
     parent_id: str | int  # casted to str
     enable_persistence: bool = False
+    ha_uuid: tp.Optional[str] = None  # UUID for HA coordination
+    worker_name: tp.Optional[str] = None  # Worker name (activation name)
 
     @validator("id", "parent_id", pre=True)
     def cast_to_str(cls, v):
@@ -95,8 +97,17 @@ class AnsibleRulebookCmdLine(BaseModel):
             args.append("--skip-audit-events")
         if self.log_level:
             args.append(self.log_level)
+
+        # Handle persistence and HA configuration
         if self.enable_persistence:
-            args.extend(["--persistence-id", self.parent_id])
+            # For HA mode (with ha_uuid), use --ha-uuid and --worker-name
+            if self.ha_uuid:
+                args.extend(["--ha-uuid", self.ha_uuid])
+                if self.worker_name:
+                    args.extend(["--worker-name", self.worker_name])
+            # For single activation persistence, use --persistence-id
+            else:
+                args.extend(["--persistence-id", self.parent_id])
 
         return args
 
@@ -208,19 +219,26 @@ class ContainerableMixin:
 
     def _build_cmdline(self) -> AnsibleRulebookCmdLine:
         access_token, refresh_token = create_jwt_token()
-        return AnsibleRulebookCmdLine(
-            ws_url=self._get_ws_url(),
-            log_level=self._get_log_level(),
-            ws_ssl_verify=settings.WEBSOCKET_SSL_VERIFY,
-            ws_access_token=access_token,
-            ws_refresh_token=refresh_token,
-            ws_token_url=self._get_ws_token_url(),
-            heartbeat=settings.RULEBOOK_LIVENESS_CHECK_SECONDS,
-            id=str(self.latest_instance.id),
-            skip_audit_events=self._get_skip_audit_events(),
-            parent_id=self.id,
-            enable_persistence=self.enable_persistence,
-        )
+        cmdline_params = {
+            "ws_url": self._get_ws_url(),
+            "log_level": self._get_log_level(),
+            "ws_ssl_verify": settings.WEBSOCKET_SSL_VERIFY,
+            "ws_access_token": access_token,
+            "ws_refresh_token": refresh_token,
+            "ws_token_url": self._get_ws_token_url(),
+            "heartbeat": settings.RULEBOOK_LIVENESS_CHECK_SECONDS,
+            "id": str(self.latest_instance.id),
+            "skip_audit_events": self._get_skip_audit_events(),
+            "parent_id": self.id,
+            "enable_persistence": self.enable_persistence,
+        }
+
+        # Add HA parameters if this activation is part of a group
+        if hasattr(self, "high_availability_group") and self.high_availability_group:
+            cmdline_params["ha_uuid"] = str(self.high_availability_group.uuid)
+            cmdline_params["worker_name"] = self.name
+
+        return AnsibleRulebookCmdLine(**cmdline_params)
 
     def _get_log_level(self) -> tp.Optional[str]:
         """Return the log level to use by ansible-rulebook."""

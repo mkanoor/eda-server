@@ -28,6 +28,7 @@ from aap_eda.api.constants import (
     SOURCE_MAPPING_ERROR_KEY,
 )
 from aap_eda.api.exceptions import ExternalSMSError, InvalidEventStreamSource
+from aap_eda.api.serializers.activation_node import ActivationNodeRefSerializer
 from aap_eda.api.serializers.decision_environment import (
     DecisionEnvironmentRefSerializer,
 )
@@ -35,6 +36,9 @@ from aap_eda.api.serializers.eda_credential import EdaCredentialSerializer
 from aap_eda.api.serializers.event_stream import EventStreamOutSerializer
 from aap_eda.api.serializers.fields.basic_user import BasicUserFieldSerializer
 from aap_eda.api.serializers.fields.yaml import YAMLSerializerField
+from aap_eda.api.serializers.high_availability_group import (
+    HighAvailabilityGroupRefSerializer,
+)
 from aap_eda.api.serializers.mixins import OrganizationIdFieldMixin
 from aap_eda.api.serializers.organization import OrganizationRefSerializer
 from aap_eda.api.serializers.project import (
@@ -442,6 +446,7 @@ class ActivationSerializer(serializers.ModelSerializer):
             "k8s_pod_annotations",
             "k8s_pod_node_selector",
             "k8s_pod_tolerations",
+            "activation_node_id",
         ]
         read_only_fields = [
             "id",
@@ -458,6 +463,7 @@ class ActivationListSerializer(
 
     rules_count = serializers.IntegerField()
     rules_fired_count = serializers.IntegerField()
+    leader = serializers.BooleanField(read_only=True)
 
     eda_credentials = serializers.ListField(
         required=False,
@@ -479,6 +485,12 @@ class ActivationListSerializer(
     modified_by = BasicUserFieldSerializer()
     edited_by = BasicUserFieldSerializer()
     project = ProjectRefSerializer(required=False, allow_null=True)
+    high_availability_group = HighAvailabilityGroupRefSerializer(
+        required=False, allow_null=True
+    )
+    activation_node = ActivationNodeRefSerializer(
+        required=False, allow_null=True
+    )
 
     class Meta:
         model = models.Activation
@@ -501,6 +513,7 @@ class ActivationListSerializer(
             "current_job_id",
             "rules_count",
             "rules_fired_count",
+            "leader",
             "created_at",
             "modified_at",
             "edited_at",
@@ -523,6 +536,9 @@ class ActivationListSerializer(
             "k8s_pod_annotations",
             "k8s_pod_node_selector",
             "k8s_pod_tolerations",
+            "high_availability_group",
+            "activation_node_id",
+            "activation_node",
         ]
         read_only_fields = [
             "id",
@@ -576,6 +592,7 @@ class ActivationListSerializer(
             "current_job_id": activation.current_job_id,
             "rules_count": rules_count,
             "rules_fired_count": rules_fired_count,
+            "leader": activation.leader,
             "created_at": activation.created_at,
             "modified_at": activation.modified_at,
             "edited_at": activation.edited_at,
@@ -595,6 +612,19 @@ class ActivationListSerializer(
             "rule_engine_credential_id": activation.rule_engine_credential_id,
             **_activation_k8s_pod_metadata_payload(activation),
             "k8s_pod_tolerations": activation.k8s_pod_tolerations,
+            "high_availability_group": (
+                HighAvailabilityGroupRefSerializer(
+                    activation.high_availability_group
+                ).data
+                if activation.high_availability_group
+                else None
+            ),
+            "activation_node_id": activation.activation_node_id,
+            "activation_node": (
+                ActivationNodeRefSerializer(activation.activation_node).data
+                if activation.activation_node
+                else None
+            ),
         }
 
 
@@ -631,6 +661,8 @@ class ActivationCreateSerializer(
             "k8s_pod_annotations",
             "k8s_pod_node_selector",
             "k8s_pod_tolerations",
+            "high_availability_group_id",
+            "activation_node_id",
         ]
 
     rulebook_id = serializers.IntegerField(
@@ -684,12 +716,22 @@ class ActivationCreateSerializer(
         default=list,
         validators=[validators.validate_k8s_pod_tolerations],
     )
+    high_availability_group_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+    activation_node_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        validators=[validators.check_if_activation_node_valid],
+    )
 
     def validate(self, data):
         _validate_credentials_and_token_and_rulebook(data=data, creating=True)
         _validate_sources_with_event_streams(data=data)
         _validate_persistence_credential(data=data)
         _normalize_activation_k8s_pod_fields(data)
+        _validate_high_availability_group_compatibility(data)
         return data
 
     def create(self, validated_data):
@@ -837,6 +879,8 @@ class ActivationUpdateSerializer(
             "k8s_pod_annotations",
             "k8s_pod_node_selector",
             "k8s_pod_tolerations",
+            "high_availability_group_id",
+            "activation_node_id",
         ]
 
     rulebook_id = serializers.IntegerField(
@@ -882,6 +926,15 @@ class ActivationUpdateSerializer(
         default=list,
         validators=[validators.validate_k8s_pod_tolerations],
     )
+    high_availability_group_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+    )
+    activation_node_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        validators=[validators.check_if_activation_node_valid],
+    )
 
     def refill_needed_data(
         self, data: dict, activation: models.Activation
@@ -920,6 +973,7 @@ class ActivationUpdateSerializer(
         _validate_sources_with_event_streams(data=data)
         _validate_persistence_credential(data=data)
         _normalize_activation_k8s_pod_fields(data)
+        _validate_high_availability_group_compatibility(data)
         return data
 
     def prepare_update(self, activation: models.Activation):
@@ -1038,8 +1092,14 @@ class ActivationUpdateSerializer(
             "source_mappings": activation.source_mappings,
             "skip_audit_events": activation.skip_audit_events,
             "enable_persistence": activation.enable_persistence,
-            "rule_engine_credential_id": activation.rule_engine_credential_id,
+            "rule_engine_credential_id": (
+                activation.rule_engine_credential_id
+            ),
             "k8s_pod_tolerations": activation.k8s_pod_tolerations,
+            "high_availability_group_id": (
+                activation.high_availability_group_id
+            ),
+            "activation_node_id": activation.activation_node_id,
         }
 
 
@@ -1096,6 +1156,7 @@ class ActivationReadSerializer(
     )
     rules_count = serializers.IntegerField()
     rules_fired_count = serializers.IntegerField()
+    leader = serializers.BooleanField(read_only=True)
     ruleset_stats = YAMLSerializerField(
         required=True,
         sort_keys=False,
@@ -1124,6 +1185,12 @@ class ActivationReadSerializer(
         allow_blank=True,
         help_text="Log tracking ID of the activation",
     )
+    high_availability_group = HighAvailabilityGroupRefSerializer(
+        required=False, allow_null=True
+    )
+    activation_node = ActivationNodeRefSerializer(
+        required=False, allow_null=True
+    )
     created_by = BasicUserFieldSerializer()
     modified_by = BasicUserFieldSerializer()
     edited_by = BasicUserFieldSerializer()
@@ -1151,6 +1218,7 @@ class ActivationReadSerializer(
             "ruleset_stats",
             "rules_count",
             "rules_fired_count",
+            "leader",
             "created_at",
             "modified_at",
             "edited_at",
@@ -1175,6 +1243,9 @@ class ActivationReadSerializer(
             "rule_engine_credential_id",
             "rule_engine_credential",
             "k8s_pod_tolerations",
+            "high_availability_group",
+            "activation_node_id",
+            "activation_node",
         ]
         read_only_fields = [
             "id",
@@ -1297,6 +1368,7 @@ class ActivationReadSerializer(
             "ruleset_stats": ruleset_stats,
             "rules_count": rules_count,
             "rules_fired_count": rules_fired_count,
+            "leader": activation.leader,
             "created_at": activation.created_at,
             "modified_at": activation.modified_at,
             "edited_at": activation.edited_at,
@@ -1319,6 +1391,19 @@ class ActivationReadSerializer(
             "rule_engine_credential_id": activation.rule_engine_credential_id,
             "rule_engine_credential": rule_engine_credential,
             "k8s_pod_tolerations": activation.k8s_pod_tolerations,
+            "high_availability_group": (
+                HighAvailabilityGroupRefSerializer(
+                    activation.high_availability_group
+                ).data
+                if activation.high_availability_group
+                else None
+            ),
+            "activation_node_id": activation.activation_node_id,
+            "activation_node": (
+                ActivationNodeRefSerializer(activation.activation_node).data
+                if activation.activation_node
+                else None
+            ),
         }
 
 
@@ -1373,6 +1458,7 @@ class PostActivationSerializer(
         _validate_sources_with_event_streams(data=data)
         _validate_persistence_credential(data=data)
         _normalize_activation_k8s_pod_fields(data)
+        _validate_high_availability_group_compatibility(data)
         return data
 
     class Meta:
@@ -1401,6 +1487,7 @@ class PostActivationSerializer(
             "skip_audit_events",
             "enable_persistence",
             "rule_engine_credential_id",
+            "activation_node_id",
         ]
         read_only_fields = [
             "id",
@@ -1820,4 +1907,106 @@ def _validate_persistence_credential(data: dict) -> None:
             "was provided and no default system credential with name "
             f"'{settings.DEFAULT_SYSTEM_RULE_ENGINE_CREDENTIAL_NAME}' "
             "could not be found. Contact your system administrator."
+        )
+
+
+def _validate_high_availability_group_compatibility(data: dict) -> None:
+    """Validate activation compatibility with HighAvailabilityGroup.
+
+    When adding an activation to a group, ensure it matches the
+    configuration of existing activations in that group. Critical
+    parameters like rulebook, decision environment, and credentials
+    must match across all activations in the group.
+    """
+    high_availability_group_id = data.get("high_availability_group_id")
+    if not high_availability_group_id:
+        return
+
+    # HA requires persistence to be enabled
+    if not data.get("enable_persistence", False):
+        raise serializers.ValidationError(
+            "Activations in a HighAvailabilityGroup require persistence to be "
+            "enabled for HA functionality. Please set 'enable_persistence' "
+            "to true."
+        )
+
+    try:
+        high_availability_group = models.HighAvailabilityGroup.objects.get(
+            id=high_availability_group_id
+        )
+    except models.HighAvailabilityGroup.DoesNotExist as exc:
+        raise serializers.ValidationError(
+            f"HighAvailabilityGroup with id {high_availability_group_id} "
+            "does not exist"
+        ) from exc
+
+    # Get the first (reference) activation in the service
+    reference_activation = high_availability_group.get_first_activation()
+    if not reference_activation:
+        # This is the first activation in the service, no validation needed
+        return
+
+    # Parameters that must match across all activations in the service
+    # log_level is intentionally excluded as it doesn't matter for HA
+    mismatches = []
+
+    if data.get("rulebook_id") != reference_activation.rulebook_id:
+        mismatches.append(
+            f"rulebook (expected: {reference_activation.rulebook.name})"
+        )
+
+    if (
+        data.get("decision_environment_id")
+        != reference_activation.decision_environment_id
+    ):
+        mismatches.append(
+            f"decision_environment (expected: "
+            f"{reference_activation.decision_environment.name})"
+        )
+
+    # Check if credentials match (order doesn't matter)
+    # Normalize both sets by ensuring the default PG credential is included
+    # since it's automatically added during activation creation
+    new_creds = set(data.get("eda_credentials", []))
+    postgres_cred = models.EdaCredential.objects.filter(
+        name=settings.DEFAULT_SYSTEM_PG_NOTIFY_CREDENTIAL_NAME
+    ).first()
+    if postgres_cred:
+        new_creds.add(postgres_cred.id)
+
+    existing_creds = set(
+        reference_activation.eda_credentials.values_list("id", flat=True)
+    )
+    if new_creds != existing_creds:
+        mismatches.append("eda_credentials")
+
+    # Normalize rule_engine_credential_id to account for default credential
+    # that may be automatically assigned
+    new_rule_engine_cred_id = _get_rule_engine_credential_id(data)
+    if (
+        new_rule_engine_cred_id
+        != reference_activation.rule_engine_credential_id
+    ):
+        mismatches.append("rule_engine_credential")
+
+    if (
+        data.get("enable_persistence")
+        != reference_activation.enable_persistence
+    ):
+        mismatches.append(
+            f"enable_persistence (expected: "
+            f"{reference_activation.enable_persistence})"
+        )
+
+    if data.get("restart_policy") != reference_activation.restart_policy:
+        mismatches.append(
+            f"restart_policy (expected: {reference_activation.restart_policy})"
+        )
+
+    if mismatches:
+        raise serializers.ValidationError(
+            f"Activation cannot join group '{high_availability_group.name}' "
+            f"because the following parameters do not match the existing "
+            f"activations in the service: {', '.join(mismatches)}. "
+            f"All activations in a service must have matching configuration."
         )

@@ -754,3 +754,31 @@ def validate_k8s_pod_tolerations(data: list) -> None:
 
     for idx, item in enumerate(data):
         _validate_single_toleration(idx, item)
+
+
+def check_if_activation_node_valid(activation_node_id: int) -> int:
+    """Validate activation_node exists and deployment type is podman.
+
+    This validator ensures that:
+    1. activation_node is only used with podman deployment type
+    2. The referenced ActivationNode exists
+    """
+    if not activation_node_id:
+        return activation_node_id
+
+    # Check deployment type - only podman uses activation nodes
+    if settings.DEPLOYMENT_TYPE != "podman":
+        raise serializers.ValidationError(
+            f"activation_node can only be used with podman deployment, "
+            f"current deployment type is '{settings.DEPLOYMENT_TYPE}'"
+        )
+
+    # Check if ActivationNode exists
+    try:
+        models.ActivationNode.objects.get(pk=activation_node_id)
+    except models.ActivationNode.DoesNotExist:
+        raise serializers.ValidationError(
+            f"ActivationNode with id {activation_node_id} does not exist"
+        )
+
+    return activation_node_id

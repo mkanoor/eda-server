@@ -118,3 +118,11 @@ class FileContentMessage(BaseModel):
     eof: bool = False
     data_format: Optional[str] = "text"
     encoding: Optional[str] = "base64"
+
+
+class HighAvailabilityStatsMessage(BaseModel):
+    type: str = "HighAvailabilityStats"
+    activation_id: int
+    activation_instance_id: int
+    stats: dict = {}
+    reported_at: str

@@ -43,6 +43,7 @@ class RestartPolicy(DjangoStrEnum):
 class ResourceType(DjangoStrEnum):
     ACTIVATION = "activation"
     ACTIVATION_INSTANCE = "activation_instance"
+    ACTIVATION_NODE = "activation_node"
     AUDIT_RULE = "audit_rule"
     USER = "user"
     PROJECT = "project"
@@ -52,6 +53,7 @@ class ResourceType(DjangoStrEnum):
     CREDENTIAL = "credential"
     CREDENTIAL_TYPE = "credential_type"
     EDA_CREDENTIAL = "eda_credential"
+    HIGH_AVAILABILITY_GROUP = "high_availability_group"
     ORGANIZATION = "organization"
     TEAM = "team"
     EVENT_STREAM = "event_stream"

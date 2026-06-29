@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 from .activation import ActivationInstanceViewSet, ActivationViewSet
+from .activation_node import ActivationNodeViewSet
 from .auth import SessionLoginView, SessionLogoutView, TokenRefreshView
 from .config import ConfigView
 from .credential_input_source import CredentialInputSourceViewSet
@@ -21,6 +22,7 @@ from .decision_environment import DecisionEnvironmentViewSet
 from .eda_credential import EdaCredentialViewSet
 from .event_stream import EventStreamViewSet
 from .external_event_stream import ExternalEventStreamViewSet
+from .high_availability_group import HighAvailabilityGroupViewSet
 from .organization import OrganizationViewSet
 from .project import ProjectViewSet
 from .root import ApiRootView, ApiV1RootView
@@ -40,6 +42,8 @@ __all__ = (
     # activations
     "ActivationViewSet",
     "ActivationInstanceViewSet",
+    "ActivationNodeViewSet",
+    "HighAvailabilityGroupViewSet",
     # user
     "CurrentUserView",
     "CurrentUserAwxTokenViewSet",

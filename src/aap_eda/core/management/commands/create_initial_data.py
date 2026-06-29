@@ -70,6 +70,8 @@ ORG_ROLES = [
         ),
         "permissions": {
             "activation": CRUD + ["enable", "disable", "restart"],
+            "activationnode": CRUD,
+            "highavailabilitygroup": CRUD,
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view", "change", "delete"],
@@ -97,6 +99,8 @@ ORG_ROLES = [
         ),
         "permissions": {
             "activation": ["add", "view", "change"],
+            "activationnode": ["add", "view", "change"],
+            "highavailabilitygroup": ["add", "view", "change"],
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view"],
@@ -125,6 +129,8 @@ ORG_ROLES = [
                 "disable",
                 "restart",
             ],
+            "activationnode": ["add", "view", "change"],
+            "highavailabilitygroup": ["add", "view", "change"],
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view"],
@@ -146,6 +152,8 @@ ORG_ROLES = [
         ),
         "permissions": {
             "activation": ["view", "enable", "disable", "restart"],
+            "activationnode": ["view"],
+            "highavailabilitygroup": ["view"],
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view"],
@@ -165,6 +173,8 @@ ORG_ROLES = [
         ),
         "permissions": {
             "activation": ["view"],
+            "activationnode": ["view"],
+            "highavailabilitygroup": ["view"],
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view"],
@@ -184,6 +194,8 @@ ORG_ROLES = [
         ),
         "permissions": {
             "activation": ["view"],
+            "activationnode": ["view"],
+            "highavailabilitygroup": ["view"],
             "rulebook_process": ["view"],
             "audit_rule": ["view"],
             "organization": ["view"],
@@ -2388,6 +2400,7 @@ class Command(BaseCommand):
             self._preload_credential_types()
             self._update_postgres_credentials()
             self._update_rule_engine_credentials()
+            self._create_activation_nodes()
             self._create_org_roles()
             self._create_obj_roles()
             self._remove_deprecated_credential_kinds()
@@ -2401,6 +2414,63 @@ class Command(BaseCommand):
         except LookupError:
             # Fallback for older version of DAB, which just used ContentType
             return apps.get_model("contenttypes", "ContentType")
+
+    def _create_activation_nodes(self):
+        """Create ActivationNode objects from RULEBOOK_WORKER_QUEUES.
+
+        Only runs for podman deployments.
+        Creates one ActivationNode per queue in RULEBOOK_WORKER_QUEUES.
+        Only creates nodes if they don't already exist (based on queue_name).
+        Uses auto-incrementing "Node N" naming for initial creation.
+        """
+        # Only create activation nodes for podman deployments
+        if settings.DEPLOYMENT_TYPE != "podman":
+            self.stdout.write(
+                "Skipping ActivationNode creation: "
+                f"deployment type is '{settings.DEPLOYMENT_TYPE}', "
+                "not 'podman'"
+            )
+            return
+
+        existing_queue_names = set(
+            models.ActivationNode.objects.values_list("queue_name", flat=True)
+        )
+
+        # Get highest existing node number to continue sequence
+        existing_nodes = models.ActivationNode.objects.filter(
+            name__regex=r"^Node \d+$"
+        ).order_by("name")
+
+        max_node_num = 0
+        for node in existing_nodes:
+            try:
+                # Extract number from "Node N" format
+                num = int(node.name.split()[1])
+                max_node_num = max(max_node_num, num)
+            except (IndexError, ValueError):
+                pass
+
+        next_node_num = max_node_num + 1
+        created_count = 0
+
+        for queue_name in settings.RULEBOOK_WORKER_QUEUES:
+            if queue_name not in existing_queue_names:
+                # Create new node with auto-incremented name
+                node_name = f"Node {next_node_num}"
+                models.ActivationNode.objects.create(
+                    queue_name=queue_name,
+                    name=node_name,
+                    description="",
+                )
+                self.stdout.write(
+                    f"Created ActivationNode '{node_name}' "
+                    f"for queue '{queue_name}'"
+                )
+                next_node_num += 1
+                created_count += 1
+
+        if created_count == 0:
+            self.stdout.write("No new activation nodes to create")
 
     def _remove_deprecated_credential_kinds(self):
         """Remove old credential types which are deprecated."""

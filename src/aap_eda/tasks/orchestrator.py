@@ -250,7 +250,20 @@ def queue_dispatch(
             f"{process_parent_id} as new process.",
         )
         try:
-            queue_name = get_least_busy_queue_name()
+            queue_name = get_queue_name_for_new_process(process_parent)
+        except ValueError as e:
+            # activation_node validation failed
+            msg = (
+                f"Cannot start {process_parent_type} "
+                f"{process_parent_id}: {e}. "
+                "Please contact the administrator."
+            )
+            LOGGER.error(msg)
+            status_manager.set_status(
+                ActivationStatus.PENDING,
+                msg,
+            )
+            return
         except HealthyQueueNotFoundError:
             msg = (
                 f"There are no healthy queues to process the start request "
@@ -410,6 +423,50 @@ def get_least_busy_queue_name() -> str:
     if len(least_common) == 1:
         return least_common[0]
     return random.choice(least_common)
+
+
+def get_queue_name_for_new_process(process_parent: Activation) -> str:
+    """Determine the queue name for a new activation process.
+
+    For podman deployments, if the activation has an activation_node specified,
+    use that node's queue directly. Otherwise, use the least busy queue.
+
+    Args:
+        process_parent: The activation object
+
+    Returns:
+        str: The queue name to use
+
+    Raises:
+        HealthyQueueNotFoundError: If no healthy queue is available
+        ValueError: If the specified activation_node is invalid or unhealthy
+    """
+    # Check if activation_node is set for podman deployment
+    if (
+        settings.DEPLOYMENT_TYPE == "podman"
+        and hasattr(process_parent, "activation_node")
+        and process_parent.activation_node
+    ):
+        queue_name = process_parent.activation_node.queue_name
+        process_parent_type = type(process_parent).__name__
+        LOGGER.info(
+            f"Using activation node '{process_parent.activation_node.name}' "
+            f"(queue: '{queue_name}') for "
+            f"{process_parent_type} {process_parent.id}",
+        )
+
+        # Validate that the queue is healthy
+        if not check_rulebook_queue_health(queue_name):
+            raise ValueError(
+                f"Activation node '{process_parent.activation_node.name}' "
+                f"(queue: '{queue_name}') is not healthy. "
+                "The workers are failing liveness checks"
+            )
+
+        return queue_name
+
+    # Fall back to least busy queue selection
+    return get_least_busy_queue_name()
 
 
 def get_queue_name_by_parent_id(

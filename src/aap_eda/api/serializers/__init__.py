@@ -23,6 +23,10 @@ from .activation import (
     ActivationUpdateSerializer,
     PostActivationSerializer,
 )
+from .activation_node import (
+    ActivationNodeRefSerializer,
+    ActivationNodeSerializer,
+)
 from .auth import JWTTokenSerializer, LoginSerializer, RefreshTokenSerializer
 from .config import ConfigSerializer
 from .credential_input_source import (
@@ -52,6 +56,11 @@ from .eda_credential import (
     EdaCredentialUpdateSerializer,
 )
 from .event_stream import EventStreamInSerializer, EventStreamOutSerializer
+from .high_availability_group import (
+    HighAvailabilityGroupReadSerializer,
+    HighAvailabilityGroupRefSerializer,
+    HighAvailabilityGroupSerializer,
+)
 from .organization import (
     OrganizationCreateSerializer,
     OrganizationRefSerializer,
@@ -119,6 +128,13 @@ __all__ = (
     "ActivationInstanceSerializer",
     "ActivationInstanceLogSerializer",
     "PostActivationSerializer",
+    # activation nodes
+    "ActivationNodeSerializer",
+    "ActivationNodeRefSerializer",
+    # high availability groups
+    "HighAvailabilityGroupSerializer",
+    "HighAvailabilityGroupReadSerializer",
+    "HighAvailabilityGroupRefSerializer",
     # users
     "AwxTokenSerializer",
     "AwxTokenCreateSerializer",

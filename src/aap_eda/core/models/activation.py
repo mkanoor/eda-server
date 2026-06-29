@@ -225,6 +225,30 @@ class Activation(
             "the default system rule engine credential."
         ),
     )
+    high_availability_group = models.ForeignKey(
+        "HighAvailabilityGroup",
+        null=True,
+        default=None,
+        on_delete=models.SET_NULL,
+        related_name="activations",
+        help_text=(
+            "The HighAvailabilityGroup this activation belongs to "
+            "for HA support. Multiple activations with the same group "
+            "will coordinate as a high-availability group."
+        ),
+    )
+    activation_node = models.ForeignKey(
+        "ActivationNode",
+        null=True,
+        default=None,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="activations",
+        help_text=(
+            "Node where this activation should run "
+            "(used for podman deployments, null for k8s)"
+        ),
+    )
 
     def get_parent_type(self) -> str:
         return ProcessParentType.ACTIVATION
@@ -239,3 +263,25 @@ class Activation(
         if not self.project:
             return False
         return self.project.needs_update_on_launch
+
+    @property
+    def leader(self) -> bool:
+        """Check if this activation is the leader in its HighAvailabilityGroup.
+
+        Returns True if:
+        - This activation belongs to a HighAvailabilityGroup
+        - The HighAvailabilityGroup has service_stats
+        - The current_leader name in service_stats matches this
+          activation's name
+
+        Returns False otherwise.
+        """
+        if not self.high_availability_group:
+            return False
+
+        service_stats = self.high_availability_group.service_stats
+        if not service_stats:
+            return False
+
+        leader_name = service_stats.get("current_leader")
+        return leader_name == self.name

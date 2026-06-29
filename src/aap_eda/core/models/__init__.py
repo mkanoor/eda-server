@@ -15,11 +15,13 @@
 from ansible_base.rbac import permission_registry
 
 from .activation import Activation
+from .activation_node import ActivationNode
 from .credential_input_source import CredentialInputSource
 from .credential_type import CredentialType
 from .decision_environment import DecisionEnvironment
 from .eda_credential import EdaCredential
 from .event_stream import EventStream
+from .high_availability_group import HighAvailabilityGroup
 from .job import (
     ActivationInstanceJobInstance,
     Job,
@@ -46,6 +48,8 @@ __all__ = [
     "RulebookProcess",
     "RulebookProcessQueue",
     "Activation",
+    "ActivationNode",
+    "HighAvailabilityGroup",
     "AuditAction",
     "AuditEvent",
     "AuditRule",
@@ -70,6 +74,7 @@ __all__ = [
 
 permission_registry.register(
     Activation,
+    HighAvailabilityGroup,
     EdaCredential,
     CredentialInputSource,
     DecisionEnvironment,
@@ -89,4 +94,8 @@ permission_registry.register(
 )
 permission_registry.register(
     AuditRule, parent_field_name="activation_instance"
+)
+permission_registry.register(
+    ActivationNode,
+    parent_field_name=None,
 )

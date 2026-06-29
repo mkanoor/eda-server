@@ -37,6 +37,8 @@ router = routers.SimpleRouter()
 router.register("projects", views.ProjectViewSet)
 router.register("rulebooks", views.RulebookViewSet)
 router.register("activations", views.ActivationViewSet)
+router.register("activation-nodes", views.ActivationNodeViewSet)
+router.register("high-availability-groups", views.HighAvailabilityGroupViewSet)
 router.register(
     "activation-instances",
     views.ActivationInstanceViewSet,

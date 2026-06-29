@@ -54,7 +54,9 @@ class ActivationViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    queryset = models.Activation.objects.select_related("project").all()
+    queryset = models.Activation.objects.select_related(
+        "project", "high_availability_group"
+    ).all()
     filter_backends = (defaultfilters.DjangoFilterBackend,)
     filterset_class = filters.ActivationFilter
 
