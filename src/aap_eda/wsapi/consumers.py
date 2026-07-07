@@ -257,7 +257,9 @@ class AnsibleRulebookConsumer(AsyncWebsocketConsumer):
 
         # Update service_stats with the received stats
         high_availability_group.service_stats = message.stats
-        high_availability_group.save(update_fields=["service_stats", "modified_at"])
+        high_availability_group.save(
+            update_fields=["service_stats", "modified_at"]
+        )
 
         logger.info(
             f"Updated HighAvailabilityGroup {high_availability_group.id} "

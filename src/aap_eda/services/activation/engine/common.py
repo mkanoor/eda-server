@@ -234,7 +234,10 @@ class ContainerableMixin:
         }
 
         # Add HA parameters if this activation is part of a group
-        if hasattr(self, "high_availability_group") and self.high_availability_group:
+        if (
+            hasattr(self, "high_availability_group")
+            and self.high_availability_group
+        ):
             cmdline_params["ha_uuid"] = str(self.high_availability_group.uuid)
             cmdline_params["worker_name"] = self.name
 

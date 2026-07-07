@@ -70,16 +70,4 @@ RESOURCE_LIST = (
             serializer=FeatureFlagType, is_provider=False
         ),
     ),
-    ResourceConfig(
-        models.ActivationNode,
-        parent_resources=[],
-    ),
-    ResourceConfig(
-        models.HighAvailabilityGroup,
-        parent_resources=[
-            ParentResource(
-                model=models.Organization, field_name="organization"
-            )
-        ],
-    ),
 )
